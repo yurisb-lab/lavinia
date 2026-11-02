@@ -88,7 +88,7 @@ function ruler(doc, x, y) {
   doc.text('5 cm', x + 52, y);
 }
 
-// cards: [{ id, copies, design, img }]; options: { cutLine }
+// cards: [{ id, copies, design, img, bgImg? }]; options: { cutLine }
 export async function buildPdf(cards, { cutLine = true, onProgress } = {}) {
   const { jsPDF } = await loadJsPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
@@ -106,7 +106,7 @@ export async function buildPdf(cards, { cutLine = true, onProgress } = {}) {
       const card = page[i];
       const { x, y } = slots[i];
       if (!rendered.has(card.id)) {
-        const canvas = renderForPrint(card.img, card.design);
+        const canvas = renderForPrint(card.img, card.design, card.bgImg);
         rendered.set(card.id, canvas.toDataURL('image/jpeg', 0.92));
         done++;
         onProgress && onProgress(done / unique);

@@ -15,6 +15,10 @@ Um app fofo para a Lavínia criar coisas no PC ou no tablet. Por enquanto ele fa
   - Tocar (ou clicar) numa cor apaga aquela região: serve para buracos, como o meio de uma letra, ou para fundos com mais de uma cor.
   - A barra "Força" apaga mais ou menos cores parecidas. Tem "Desfazer" e "Foto original"; a foto original fica guardada junto com o card.
   - Onde ficou transparente aparece um xadrezinho; depois, a "Cor de fundo" do card aparece no lugar.
+- **Pôr fundo:** coloca uma foto atrás da sua foto (fica ótimo depois de "Tirar fundo").
+  - Em "Pôr fundo", escolha uma foto do aparelho, **cole** (Ctrl+V ou o botão "Colar") ou **arraste** uma imagem para a tela.
+  - Enquanto o painel está aberto, só o fundo se mexe: arrastar, pinça, rodinha e as barras "Tamanho" e "Inclinar" ajustam o fundo; a sua foto fica parada na frente. Tem "Encaixar" e "Remover".
+  - Toque em "Pronto" e depois em "Colocar na folha" (ou "Salvar card"). A foto de fundo fica guardada junto com o card e sai no PDF.
 - Três jeitos de colocar a foto: **escolher do aparelho**, **arrastar a imagem** para a tela ou **colar** (Ctrl+V no PC, ou o botão "Colar").
 - A **folha A4** mostra onde cada card vai sair (9 por folha). Dá para escolher quantas cópias de cada card.
 - "Preparar folha para imprimir" gera um **PDF A4 em 300 dpi** com marcas de corte em cada canto, uma linha fininha opcional em volta do card e uma régua de 5 cm no rodapé para conferir a medida.

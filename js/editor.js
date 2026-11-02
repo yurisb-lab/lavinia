@@ -1,5 +1,6 @@
 // Editor do card: a forma fica parada no meio e a foto é arrastada, aumentada e girada por baixo dela.
 // Funciona com dedo (tablet), caneta e mouse.
+// Tem duas camadas: a foto (na frente) e a foto de fundo (atrás). Os gestos mexem na camada escolhida.
 
 import { cardSize, coverScale, drawCard, drawImage, roundRectPath, CARD } from './card.js';
 
@@ -10,7 +11,9 @@ const SNAP_DEG = 4;
 export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   const ctx = canvas.getContext('2d');
   let img = null;
-  let design = { orientation: 'portrait', bg: '#ffffff', transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false } };
+  let bgImg = null; // foto de fundo (opcional)
+  let target = 'photo'; // camada que os gestos mexem: 'photo' ou 'bg'
+  let design = { orientation: 'portrait', bg: '#ffffff', transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false }, bgTransform: null };
   let view = { cw: 0, ch: 0, k: 1, cx: 0, cy: 0 };
   let raf = 0;
 
@@ -20,6 +23,12 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   let tapMode = false; // no modo "tirar fundo", tocar apaga a cor em vez de mover
   let checker = false; // xadrez no lugar do fundo, para ver o que ficou transparente
   let checkerPattern = null;
+
+  // Camada que está sendo mexida agora.
+  const layerImg = () => (target === 'bg' ? bgImg : img);
+  const tKey = () => (target === 'bg' ? 'bgTransform' : 'transform');
+  const getT = () => design[tKey()];
+  const setT = (t) => (design[tKey()] = t);
 
   function getChecker() {
     if (checkerPattern) return checkerPattern;
@@ -66,10 +75,10 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
     const r = cardRect();
 
     // A parte da foto que fica fora do card aparece apagadinha, como no Canva.
-    if (img) {
+    if (layerImg() && getT()) {
       ctx.save();
       ctx.globalAlpha = 0.3;
-      drawImage(ctx, img, design.transform, view.cx, view.cy, k);
+      drawImage(ctx, layerImg(), getT(), view.cx, view.cy, k);
       ctx.restore();
     }
 
@@ -86,10 +95,10 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
     if (checker) {
       ctx.save();
       ctx.translate(r.left, r.top);
-      drawCard(ctx, img, { ...design, bg: getChecker() }, 0, 0, k);
+      drawCard(ctx, img, { ...design, bg: getChecker() }, 0, 0, k); // sem a foto de fundo, para ver o transparente
       ctx.restore();
     } else {
-      drawCard(ctx, img, design, r.left, r.top, k);
+      drawCard(ctx, img, design, r.left, r.top, k, bgImg);
     }
 
     // Contorno do card
@@ -120,8 +129,13 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
 
   // ---------- regras da foto ----------
   function baseCover() {
-    if (!img) return 1;
-    return coverScale(img.naturalWidth || img.width, img.naturalHeight || img.height, design.orientation, 0);
+    const li = layerImg();
+    if (!li) return 1;
+    return coverScale(li.naturalWidth || li.width, li.naturalHeight || li.height, design.orientation, 0);
+  }
+
+  function coverFor(im, orientation, rotation = 0) {
+    return coverScale(im.naturalWidth || im.width, im.naturalHeight || im.height, orientation, rotation);
   }
 
   function clampScale(s) {
@@ -159,7 +173,7 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
 
   function startGesture() {
     const pts = [...pointers.values()];
-    const t0 = { ...design.transform };
+    const t0 = { ...getT() };
     if (pts.length === 1) {
       gesture = { type: 'pan', t0, p0: { ...pts[0] } };
     } else if (pts.length >= 2) {
@@ -177,7 +191,7 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   }
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (!img) return;
+    if (!layerImg()) return;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {
@@ -202,7 +216,7 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
     const g = gesture;
     if (g.type === 'pan' && pts.length === 1) {
       const p = pts[0];
-      design.transform = { ...g.t0, x: g.t0.x + (p.x - g.p0.x) / view.k, y: g.t0.y + (p.y - g.p0.y) / view.k };
+      setT({ ...g.t0, x: g.t0.x + (p.x - g.p0.x) / view.k, y: g.t0.y + (p.y - g.p0.y) / view.k });
     } else if (g.type === 'pinch' && pts.length >= 2) {
       const [a, b] = pts;
       const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -210,7 +224,7 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
       const scale = clampScale(g.t0.scale * (d / g.d0));
       const rotation = snapRotation(g.t0.rotation + ((ang - g.a0) * 180) / Math.PI);
-      design.transform = transformAround(g.t0, g.m0.x, g.m0.y, scale, rotation, m.x - g.m0.x, m.y - g.m0.y);
+      setT(transformAround(g.t0, g.m0.x, g.m0.y, scale, rotation, m.x - g.m0.x, m.y - g.m0.y));
     }
     changed();
   });
@@ -241,15 +255,15 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   canvas.addEventListener(
     'wheel',
     (e) => {
-      if (!img) return;
+      if (!layerImg()) return;
       e.preventDefault();
       const p = localPoint(e);
-      const t0 = design.transform;
+      const t0 = getT();
       if (e.shiftKey) {
-        design.transform = transformAround(t0, view.cx, view.cy, t0.scale, snapRotation(t0.rotation + Math.sign(e.deltaY) * 3));
+        setT(transformAround(t0, view.cx, view.cy, t0.scale, snapRotation(t0.rotation + Math.sign(e.deltaY) * 3)));
       } else {
         const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
-        design.transform = transformAround(t0, p.x, p.y, clampScale(t0.scale * factor), t0.rotation);
+        setT(transformAround(t0, p.x, p.y, clampScale(t0.scale * factor), t0.rotation));
       }
       changed();
       clearTimeout(wheelTimer);
@@ -259,12 +273,12 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   );
 
   canvas.addEventListener('keydown', (e) => {
-    if (!img) return;
+    if (!layerImg()) return;
     const step = e.shiftKey ? 5 : 1;
-    const t = design.transform;
+    const t = getT();
     const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     if (moves[e.key]) {
-      design.transform = { ...t, x: t.x + moves[e.key][0], y: t.y + moves[e.key][1] };
+      setT({ ...t, x: t.x + moves[e.key][0], y: t.y + moves[e.key][1] });
     } else if (e.key === '+' || e.key === '=') {
       api.setZoom(api.getZoom() * 1.1);
       return e.preventDefault();
@@ -286,24 +300,33 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   const api = {
     hasImage: () => !!img,
     getImage: () => img,
-    getDesign: () => ({ ...design, transform: { ...design.transform } }),
+    getDesign: () => ({
+      ...design,
+      transform: { ...design.transform },
+      bgTransform: bgImg && design.bgTransform ? { ...design.bgTransform } : null,
+    }),
 
-    load(newImg, newDesign) {
+    // newBgImg: foto de fundo (opcional), enquadrada por newDesign.bgTransform.
+    load(newImg, newDesign, newBgImg = null) {
       img = newImg;
-      design = { ...newDesign, transform: { ...newDesign.transform } };
+      bgImg = newBgImg && newDesign.bgTransform ? newBgImg : null;
+      target = 'photo';
+      design = { ...newDesign, transform: { ...newDesign.transform }, bgTransform: bgImg ? { ...newDesign.bgTransform } : null };
       layout();
       redraw();
     },
 
     clear() {
       img = null;
-      design = { ...design, transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false } };
+      bgImg = null;
+      target = 'photo';
+      design = { ...design, transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false }, bgTransform: null };
       redraw();
     },
 
     fit() {
-      if (!img) return;
-      design.transform = { x: 0, y: 0, scale: baseCover(), rotation: 0, flip: design.transform.flip };
+      if (!layerImg()) return;
+      setT({ x: 0, y: 0, scale: baseCover(), rotation: 0, flip: getT().flip });
       changed();
       commit();
     },
@@ -313,11 +336,39 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
       design.orientation = o;
       if (img) {
         const t = design.transform;
-        design.transform = { ...t, x: 0, y: 0, scale: coverScale(img.naturalWidth || img.width, img.naturalHeight || img.height, o, t.rotation) };
+        design.transform = { ...t, x: 0, y: 0, scale: coverFor(img, o, t.rotation) };
+      }
+      if (bgImg) {
+        const t = design.bgTransform;
+        design.bgTransform = { ...t, x: 0, y: 0, scale: coverFor(bgImg, o, t.rotation) };
       }
       changed();
       commit();
     },
+
+    // ---------- foto de fundo ----------
+    hasBgImage: () => !!bgImg,
+    getBgImage: () => bgImg,
+    // Coloca (ou troca) a foto de fundo, já cobrindo o card inteiro.
+    setBgImage(newBgImg) {
+      bgImg = newBgImg;
+      design.bgTransform = { x: 0, y: 0, scale: coverFor(newBgImg, design.orientation), rotation: 0, flip: false };
+      changed();
+      commit();
+    },
+    clearBgImage() {
+      bgImg = null;
+      design.bgTransform = null;
+      changed();
+      commit();
+    },
+    // Qual camada os gestos, as barras e os botões mexem: 'photo' ou 'bg'.
+    setTarget(t) {
+      target = t === 'bg' ? 'bg' : 'photo';
+      canvas.classList.toggle('is-bg-target', target === 'bg');
+      redraw();
+    },
+    getTarget: () => target,
 
     setBackground(color) {
       design.bg = color;
@@ -325,31 +376,31 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
       commit();
     },
 
-    getZoom: () => (img ? design.transform.scale / baseCover() : 1),
+    getZoom: () => (layerImg() ? getT().scale / baseCover() : 1),
     setZoom(z, { silent } = {}) {
-      if (!img) return;
-      const t0 = design.transform;
-      design.transform = transformAround(t0, view.cx, view.cy, clampScale(z * baseCover()), t0.rotation);
+      if (!layerImg()) return;
+      const t0 = getT();
+      setT(transformAround(t0, view.cx, view.cy, clampScale(z * baseCover()), t0.rotation));
       changed();
       if (!silent) commit();
     },
     zoomLimits: () => ({ min: ZOOM_MIN, max: ZOOM_MAX }),
 
-    getRotation: () => design.transform.rotation,
+    getRotation: () => (getT() ? getT().rotation : 0),
     setRotation(deg, { silent } = {}) {
-      if (!img) return;
-      const t0 = design.transform;
-      design.transform = transformAround(t0, view.cx, view.cy, t0.scale, snapRotation(deg));
+      if (!layerImg()) return;
+      const t0 = getT();
+      setT(transformAround(t0, view.cx, view.cy, t0.scale, snapRotation(deg)));
       changed();
       if (!silent) commit();
     },
     rotate90() {
-      api.setRotation(design.transform.rotation + 90);
+      api.setRotation(api.getRotation() + 90);
     },
 
     flip() {
-      if (!img) return;
-      design.transform = { ...design.transform, flip: !design.transform.flip };
+      if (!layerImg()) return;
+      setT({ ...getT(), flip: !getT().flip });
       changed();
       commit();
     },
