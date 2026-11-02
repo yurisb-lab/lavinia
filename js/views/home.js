@@ -10,7 +10,7 @@ const TOOLS = [
   {
     route: 'photo-cards',
     name: 'Photo cards',
-    text: 'Escolha uma foto, encaixe no card e imprima numa folha A4 já com as marcas para recortar.',
+    text: 'Escolha fotos, enfeite com textos, adesivos e molduras, e imprima numa folha A4 já com o pontilhado para recortar.',
     art: 'cards',
   },
 ];

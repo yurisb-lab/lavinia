@@ -1,24 +1,41 @@
 // Guarda o aplicativo no aparelho para abrir mesmo sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION para os aparelhos baixarem a versão nova.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `lavinia-${VERSION}`;
 const APP_FILES = [
   './',
   'index.html',
   'css/app.css',
+  'css/fonts.css',
   'js/app.js',
   'js/bg-remover.js',
   'js/bg-worker.js',
   'js/card.js',
   'js/db.js',
   'js/editor.js',
+  'js/fonts.js',
+  'js/fx.js',
+  'js/history.js',
   'js/icons.js',
   'js/image.js',
   'js/pdf.js',
+  'js/render.js',
+  'js/stickers.js',
+  'js/templates.js',
   'js/toast.js',
   'js/views/home.js',
+  'js/views/pc-panels.js',
   'js/views/photocards.js',
   'vendor/jspdf.umd.min.js',
+  'fonts/bungee-latin.woff2',
+  'fonts/caveat-latin.woff2',
+  'fonts/dancing-script-latin.woff2',
+  'fonts/fredoka-latin.woff2',
+  'fonts/lobster-latin.woff2',
+  'fonts/nunito-latin.woff2',
+  'fonts/pacifico-latin.woff2',
+  'fonts/permanent-marker-latin.woff2',
+  'fonts/rubik-bubbles-latin.woff2',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
@@ -44,13 +61,12 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  const isFont = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
-  if (url.origin !== location.origin && !isFont) return;
+  if (url.origin !== location.origin) return;
 
   e.respondWith(
     fetch(req)
       .then((res) => {
-        if (res && (res.ok || res.type === 'opaque')) {
+        if (res && res.ok) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(req, copy));
         }
