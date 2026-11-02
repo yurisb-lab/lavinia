@@ -1,26 +1,149 @@
-// Editor do card: a forma fica parada no meio e a foto é arrastada, aumentada e girada por baixo dela.
-// Funciona com dedo (tablet), caneta e mouse.
+// Editor do card: mostra um lado do card e deixa mexer em cada coisa (foto, texto, adesivo).
+// Tocar escolhe; arrastar move; dois dedos (ou a rodinha) aumentam e giram.
+// A bolinha no canto de um texto ou adesivo também aumenta e gira, com um dedo ou o mouse.
 
-import { cardSize, coverScale, drawCard, drawImage, roundRectPath, CARD } from './card.js';
+import { cardSize, cellRects, coverScale, newDesign, CARD } from './card.js';
+import { drawSide, drawPhoto, layerBox, roundRectPath } from './render.js';
 
-const ZOOM_MIN = 0.25; // em relação ao "preencher o card"
+const ZOOM_MIN = 0.25; // foto: em relação ao "preencher o espaço"
 const ZOOM_MAX = 8;
+const SIZE = { text: [2, 40], sticker: [3, 90] }; // mm
 const SNAP_DEG = 4;
+const SNAP_MM = 1.2;
+const HANDLE_R = 14; // px
 
-export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+export function createEditor(canvas, hooks = {}) {
+  const { getImg, onChange, onCommit, onSelect, onTap, onEmptyCell, onEditText, onDelete } = hooks;
   const ctx = canvas.getContext('2d');
-  let img = null;
-  let design = { orientation: 'portrait', bg: '#ffffff', transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false } };
-  let view = { cw: 0, ch: 0, k: 1, cx: 0, cy: 0 };
+  let design = newDesign();
+  let sideName = 'front';
+  let sel = null; // { id } ou { cell }
+  let view = { cw: 1, ch: 1, k: 1, cx: 0, cy: 0, dpr: 1 };
   let raf = 0;
+  let tapMode = false; // "tirar fundo": tocar apaga a cor
+  let rawLayerId = null; // foto mostrada sem efeitos e com xadrez atrás
+  let guides = { v: false, h: false };
+  let checkerPattern = null;
 
   const pointers = new Map();
   let gesture = null;
-  let tap = null; // toque rápido, sem arrastar
-  let tapMode = false; // no modo "tirar fundo", tocar apaga a cor em vez de mover
-  let checker = false; // xadrez no lugar do fundo, para ver o que ficou transparente
-  let checkerPattern = null;
+  let tap = null;
+  let lastTap = null;
+  let downTarget = null;
+  let handleDown = false;
 
+  // ---------- consultas ----------
+  const side = () => design[sideName];
+  const cells = () => cellRects(side(), design.orientation);
+  const layerById = (id) => side().layers.find((l) => l.id === id) || null;
+  const selectedLayer = () => (sel && sel.id ? layerById(sel.id) : null);
+
+  function imgSize(layer) {
+    const img = getImg(layer.imageKey);
+    if (!img) return null;
+    return { iw: img.naturalWidth || img.width, ih: img.naturalHeight || img.height };
+  }
+
+  function baseCover(layer, cell = cells()[layer.cell]) {
+    const s = imgSize(layer);
+    if (!s || !cell) return 1;
+    return coverScale(s.iw, s.ih, cell.w, cell.h, 0);
+  }
+
+  function clampScale(layer, s) {
+    const c = baseCover(layer);
+    return Math.min(c * ZOOM_MAX, Math.max(c * ZOOM_MIN, s));
+  }
+
+  const clampSize = (layer, s) => Math.min(SIZE[layer.type][1], Math.max(SIZE[layer.type][0], s));
+
+  function snapRotation(deg) {
+    const d = ((((deg + 180) % 360) + 360) % 360) - 180;
+    for (const t of [-180, -90, 0, 90, 180]) if (Math.abs(d - t) <= SNAP_DEG) return t === -180 ? 180 : t;
+    return Math.round(d * 10) / 10;
+  }
+
+  // ---------- medidas da tela ----------
+  function layout() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    const cw = Math.max(1, rect.width);
+    const ch = Math.max(1, rect.height);
+    if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
+      canvas.width = Math.round(cw * dpr);
+      canvas.height = Math.round(ch * dpr);
+    }
+    const { w, h } = cardSize(design.orientation);
+    const pad = Math.max(28, Math.min(cw, ch) * 0.12);
+    const k = Math.max(0.5, Math.min((cw - pad * 2) / w, (ch - pad * 2) / h));
+    view = { cw, ch, k, cx: cw / 2, cy: ch / 2, dpr };
+  }
+
+  function cardRect() {
+    const { w, h } = cardSize(design.orientation);
+    return { left: view.cx - (w * view.k) / 2, top: view.cy - (h * view.k) / 2, w: w * view.k, h: h * view.k };
+  }
+
+  const toMM = (p) => ({ x: (p.x - view.cx) / view.k, y: (p.y - view.cy) / view.k });
+  const cellCenterPx = (cell) => ({ x: view.cx + cell.cx * view.k, y: view.cy + cell.cy * view.k });
+
+  function layerCenterPx(layer) {
+    if (layer.type === 'photo') {
+      const c = cellCenterPx(cells()[layer.cell]);
+      return { x: c.x + layer.x * view.k, y: c.y + layer.y * view.k };
+    }
+    return { x: view.cx + layer.x * view.k, y: view.cy + layer.y * view.k };
+  }
+
+  // ---------- acertar onde tocou ----------
+  const inCell = (m, c) => m.x >= c.cx - c.w / 2 && m.x <= c.cx + c.w / 2 && m.y >= c.cy - c.h / 2 && m.y <= c.cy + c.h / 2;
+
+  function inBox(m, layer) {
+    const b = layerBox(layer);
+    const a = (-layer.rotation * Math.PI) / 180;
+    const dx = m.x - layer.x;
+    const dy = m.y - layer.y;
+    const lx = dx * Math.cos(a) - dy * Math.sin(a);
+    const ly = dx * Math.sin(a) + dy * Math.cos(a);
+    const hw = Math.max(b.w / 2, 3.5) + 0.8;
+    const hh = Math.max(b.h / 2, 3.5) + 0.8;
+    return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+  }
+
+  function hitLayer(m) {
+    const ls = side().layers;
+    const cs = cells();
+    for (let i = ls.length - 1; i >= 0; i--) {
+      const l = ls[i];
+      if (l.type === 'photo') {
+        if (cs[l.cell] && getImg(l.imageKey) && inCell(m, cs[l.cell])) return l;
+      } else if (inBox(m, l)) return l;
+    }
+    return null;
+  }
+
+  const hitCell = (m) => cells().findIndex((c) => inCell(m, c));
+
+  function handlePos(layer) {
+    const b = layerBox(layer);
+    const k = view.k;
+    const a = (layer.rotation * Math.PI) / 180;
+    const lx = (b.w / 2) * k + 6;
+    const ly = (b.h / 2) * k + 6;
+    const c = layerCenterPx(layer);
+    return { x: c.x + lx * Math.cos(a) - ly * Math.sin(a), y: c.y + lx * Math.sin(a) + ly * Math.cos(a) };
+  }
+
+  function onHandle(p) {
+    const l = selectedLayer();
+    if (!l || l.type === 'photo' || tapMode) return false;
+    const h = handlePos(l);
+    return Math.hypot(p.x - h.x, p.y - h.y) <= HANDLE_R + 8;
+  }
+
+  // ---------- desenho ----------
   function getChecker() {
     if (checkerPattern) return checkerPattern;
     const c = document.createElement('canvas');
@@ -35,28 +158,6 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
     return checkerPattern;
   }
 
-  // ---------- medidas da tela ----------
-  function layout() {
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
-    const cw = Math.max(1, rect.width);
-    const ch = Math.max(1, rect.height);
-    if (canvas.width !== Math.round(cw * dpr) || canvas.height !== Math.round(ch * dpr)) {
-      canvas.width = Math.round(cw * dpr);
-      canvas.height = Math.round(ch * dpr);
-    }
-    const { w, h } = cardSize(design.orientation);
-    const pad = Math.max(24, Math.min(cw, ch) * 0.14);
-    const k = Math.max(0.5, Math.min((cw - pad * 2) / w, (ch - pad * 2) / h));
-    view = { cw, ch, k, cx: cw / 2, cy: ch / 2, dpr };
-  }
-
-  function cardRect() {
-    const { w, h } = cardSize(design.orientation);
-    return { left: view.cx - (w * view.k) / 2, top: view.cy - (h * view.k) / 2, w: w * view.k, h: h * view.k };
-  }
-
-  // ---------- desenho ----------
   function draw() {
     raf = 0;
     layout();
@@ -64,43 +165,142 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, view.cw, view.ch);
     const r = cardRect();
+    const sl = selectedLayer();
 
-    // A parte da foto que fica fora do card aparece apagadinha, como no Canva.
-    if (img) {
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      drawImage(ctx, img, design.transform, view.cx, view.cy, k);
-      ctx.restore();
+    // A parte da foto que fica fora do espaço aparece apagadinha, como no Canva.
+    if (sl && sl.type === 'photo') {
+      const img = getImg(sl.imageKey);
+      const cell = cells()[sl.cell];
+      if (img && cell) {
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        const c = cellCenterPx(cell);
+        drawPhoto(ctx, img, sl, c.x, c.y, k, 900, true);
+        ctx.restore();
+      }
     }
 
-    // Sombra do card
+    // sombra do card
     ctx.save();
     ctx.shadowColor = 'rgba(122, 46, 84, 0.22)';
     ctx.shadowBlur = 22;
     ctx.shadowOffsetY = 8;
     roundRectPath(ctx, r.left, r.top, r.w, r.h, CARD.radius * k);
-    ctx.fillStyle = design.bg || '#fff';
+    ctx.fillStyle = '#fff';
     ctx.fill();
     ctx.restore();
 
-    if (checker) {
-      ctx.save();
-      ctx.translate(r.left, r.top);
-      drawCard(ctx, img, { ...design, bg: getChecker() }, 0, 0, k);
-      ctx.restore();
-    } else {
-      drawCard(ctx, img, design, r.left, r.top, k);
-    }
+    drawSide(ctx, design, sideName, getImg, {
+      left: r.left,
+      top: r.top,
+      k,
+      placeholders: tapMode ? null : 'editor',
+      checker: rawLayerId ? getChecker() : null,
+      rawLayerId,
+      maxSide: 1600,
+    });
 
-    // Contorno do card
+    // Pontilhado de corte: é por aqui que a tesoura passa.
     ctx.save();
     roundRectPath(ctx, r.left, r.top, r.w, r.h, CARD.radius * k);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.stroke();
-    roundRectPath(ctx, r.left - 1.5, r.top - 1.5, r.w + 3, r.h + 3, CARD.radius * k + 1.5);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(214, 66, 128, 0.55)';
+    ctx.setLineDash([7, 5]);
+    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = 'rgba(163, 33, 90, 0.9)';
+    ctx.stroke();
+    ctx.restore();
+
+    // linhas-guia do meio
+    if (guides.v || guides.h) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(91, 63, 158, 0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      if (guides.v) {
+        ctx.moveTo(view.cx, r.top);
+        ctx.lineTo(view.cx, r.top + r.h);
+      }
+      if (guides.h) {
+        ctx.moveTo(r.left, view.cy);
+        ctx.lineTo(r.left + r.w, view.cy);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawSelection(sl);
+  }
+
+  function drawSelection(l) {
+    const k = view.k;
+    const r = cardRect();
+    if (sel && sel.cell != null && !l) {
+      const c = cells()[sel.cell];
+      if (c) {
+        ctx.save();
+        roundRectPath(ctx, r.left + c.x * k, r.top + c.y * k, c.w * k, c.h * k, c.r * k);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#7a52d1';
+        ctx.stroke();
+        ctx.restore();
+      }
+      return;
+    }
+    if (!l) return;
+    if (l.type === 'photo') {
+      const c = cells()[l.cell];
+      if (!c || cells().length < 2) return;
+      ctx.save();
+      roundRectPath(ctx, r.left + c.x * k, r.top + c.y * k, c.w * k, c.h * k, c.r * k);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#7a52d1';
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    const b = layerBox(l);
+    const c = layerCenterPx(l);
+    ctx.save();
+    ctx.translate(c.x, c.y);
+    ctx.rotate((l.rotation * Math.PI) / 180);
+    const w = b.w * k + 8;
+    const h = b.h * k + 8;
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#7a52d1';
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+    if (tapMode) return;
+    const hp = handlePos(l);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(hp.x, hp.y, HANDLE_R, 0, Math.PI * 2);
+    ctx.fillStyle = '#7a52d1';
+    ctx.shadowColor = 'rgba(0,0,0,0.25)';
+    ctx.shadowBlur = 6;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+    // setinha de girar
+    ctx.beginPath();
+    ctx.arc(hp.x, hp.y, 6, -Math.PI * 0.9, Math.PI * 0.45);
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    const ex = hp.x + 6 * Math.cos(Math.PI * 0.45);
+    const ey = hp.y + 6 * Math.sin(Math.PI * 0.45);
+    ctx.beginPath();
+    ctx.moveTo(ex - 4, ey - 1);
+    ctx.lineTo(ex, ey);
+    ctx.lineTo(ex + 1, ey - 4);
     ctx.stroke();
     ctx.restore();
   }
@@ -111,44 +311,18 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
 
   function changed() {
     redraw();
-    onChange && onChange(api.getDesign());
+    onChange && onChange(design);
   }
 
   function commit() {
-    onCommit && onCommit(api.getDesign());
+    onCommit && onCommit(design);
   }
 
-  // ---------- regras da foto ----------
-  function baseCover() {
-    if (!img) return 1;
-    return coverScale(img.naturalWidth || img.width, img.naturalHeight || img.height, design.orientation, 0);
-  }
-
-  function clampScale(s) {
-    const c = baseCover();
-    return Math.min(c * ZOOM_MAX, Math.max(c * ZOOM_MIN, s));
-  }
-
-  function snapRotation(deg) {
-    let d = ((deg + 180) % 360 + 360) % 360 - 180;
-    for (const target of [-180, -90, 0, 90, 180]) {
-      if (Math.abs(d - target) <= SNAP_DEG) return target === -180 ? 180 : target;
-    }
-    return Math.round(d * 10) / 10;
-  }
-
-  // Muda escala/rotação mantendo fixo um ponto da tela (o dedo ou o cursor).
-  function transformAround(t0, px, py, newScale, newRotation, moveX = 0, moveY = 0) {
-    const k = view.k;
-    const ratio = newScale / t0.scale;
-    const da = ((newRotation - t0.rotation) * Math.PI) / 180;
-    const cos = Math.cos(da);
-    const sin = Math.sin(da);
-    const ix = view.cx + t0.x * k - px;
-    const iy = view.cy + t0.y * k - py;
-    const nx = px + moveX + ratio * (ix * cos - iy * sin);
-    const ny = py + moveY + ratio * (ix * sin + iy * cos);
-    return { ...t0, scale: newScale, rotation: newRotation, x: (nx - view.cx) / k, y: (ny - view.cy) / k };
+  function setSel(next) {
+    const same = JSON.stringify(next) === JSON.stringify(sel);
+    sel = next;
+    redraw();
+    if (!same && onSelect) onSelect(sel);
   }
 
   // ---------- gestos ----------
@@ -157,81 +331,195 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
 
+  // Novo centro de algo que gira/aumenta em volta de um ponto da tela (px, py).
+  function aroundPivot(c, px, py, ratio, da, mx = 0, my = 0) {
+    const cos = Math.cos(da);
+    const sin = Math.sin(da);
+    const ix = c.x - px;
+    const iy = c.y - py;
+    return { x: px + mx + ratio * (ix * cos - iy * sin), y: py + my + ratio * (ix * sin + iy * cos) };
+  }
+
+  function placeCenter(layer, cpx) {
+    if (layer.type === 'photo') {
+      const cc = cellCenterPx(cells()[layer.cell]);
+      layer.x = (cpx.x - cc.x) / view.k;
+      layer.y = (cpx.y - cc.y) / view.k;
+    } else {
+      layer.x = (cpx.x - view.cx) / view.k;
+      layer.y = (cpx.y - view.cy) / view.k;
+    }
+  }
+
+  function snapPosition(layer) {
+    guides = { v: false, h: false };
+    if (layer.type === 'photo') return;
+    if (Math.abs(layer.x) < SNAP_MM) {
+      layer.x = 0;
+      guides.v = true;
+    }
+    if (Math.abs(layer.y) < SNAP_MM) {
+      layer.y = 0;
+      guides.h = true;
+    }
+  }
+
+  // Muda tamanho/giro de uma camada mantendo um ponto da tela parado.
+  function scaleRotate(layer, start, px, py, ratio, newRot, mx = 0, my = 0) {
+    let r = ratio;
+    if (layer.type === 'photo') {
+      const s = clampScale(layer, start.scale * ratio);
+      r = s / start.scale;
+      layer.scale = s;
+    } else {
+      const s = clampSize(layer, start.size * ratio);
+      r = s / start.size;
+      layer.size = s;
+    }
+    const da = ((newRot - start.rotation) * Math.PI) / 180;
+    layer.rotation = newRot;
+    const c0 = layerCenterPx({ ...layer, x: start.x, y: start.y });
+    placeCenter(layer, aroundPivot(c0, px, py, r, da, mx, my));
+  }
+
   function startGesture() {
     const pts = [...pointers.values()];
-    const t0 = { ...design.transform };
+    const target = downTarget ? layerById(downTarget) : null;
+    if (!target || !pts.length) {
+      gesture = null;
+      return;
+    }
+    const start = clone(target);
     if (pts.length === 1) {
-      gesture = { type: 'pan', t0, p0: { ...pts[0] } };
-    } else if (pts.length >= 2) {
+      gesture = { type: handleDown ? 'handle' : 'pan', id: target.id, start, p0: { ...pts[0] }, moved: gesture ? gesture.moved : false };
+    } else {
       const [a, b] = pts;
       gesture = {
         type: 'pinch',
-        t0,
+        id: target.id,
+        start,
         m0: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
         d0: Math.hypot(b.x - a.x, b.y - a.y) || 1,
         a0: Math.atan2(b.y - a.y, b.x - a.x),
+        moved: gesture ? gesture.moved : false,
       };
-    } else {
-      gesture = null;
     }
   }
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (!img) return;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {
       /* alguns navegadores recusam; o gesto funciona igual */
     }
-    pointers.set(e.pointerId, localPoint(e));
-    tap = pointers.size === 1 ? { id: e.pointerId, ...localPoint(e) } : null;
+    const p = localPoint(e);
+    pointers.set(e.pointerId, p);
+    if (pointers.size === 1) {
+      tap = { id: e.pointerId, x: p.x, y: p.y };
+      handleDown = false;
+      if (tapMode) {
+        downTarget = rawLayerId;
+      } else if (onHandle(p)) {
+        handleDown = true;
+        downTarget = sel.id;
+      } else {
+        const m = toMM(p);
+        const hit = hitLayer(m);
+        if (hit) {
+          downTarget = hit.id;
+          setSel({ id: hit.id });
+        } else {
+          downTarget = null;
+          const ci = hitCell(m);
+          setSel(ci >= 0 ? { cell: ci } : null);
+        }
+      }
+      gesture = null;
+    } else if (!downTarget && sel && sel.id) {
+      downTarget = sel.id; // dois dedos fora de tudo: mexe no que está escolhido
+    }
     canvas.classList.add('is-grabbing');
     startGesture();
     e.preventDefault();
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (!pointers.has(e.pointerId) || !gesture) return;
+    if (!pointers.has(e.pointerId)) {
+      // mouse passando por cima: mostra a mãozinha certa
+      const p = localPoint(e);
+      const over = !tapMode && (onHandle(p) || hitLayer(toMM(p)));
+      canvas.classList.toggle('is-over', !!over);
+      return;
+    }
     const lp = localPoint(e);
     pointers.set(e.pointerId, lp);
     if (tap && tap.id === e.pointerId) {
       if (Math.hypot(lp.x - tap.x, lp.y - tap.y) > 8) tap = null;
-      else if (tapMode) return; // ainda pode ser um toque: não mexe na foto
+      else if (tapMode) return;
     }
-    const pts = [...pointers.values()];
+    if (!gesture) return;
+    const layer = layerById(gesture.id);
+    if (!layer) return;
     const g = gesture;
+    const pts = [...pointers.values()];
+    const k = view.k;
     if (g.type === 'pan' && pts.length === 1) {
-      const p = pts[0];
-      design.transform = { ...g.t0, x: g.t0.x + (p.x - g.p0.x) / view.k, y: g.t0.y + (p.y - g.p0.y) / view.k };
+      layer.x = g.start.x + (pts[0].x - g.p0.x) / k;
+      layer.y = g.start.y + (pts[0].y - g.p0.y) / k;
+      snapPosition(layer);
+    } else if (g.type === 'handle' && pts.length === 1) {
+      const c = layerCenterPx(g.start);
+      const v0 = { x: g.p0.x - c.x, y: g.p0.y - c.y };
+      const v = { x: pts[0].x - c.x, y: pts[0].y - c.y };
+      const ratio = (Math.hypot(v.x, v.y) || 1) / (Math.hypot(v0.x, v0.y) || 1);
+      const rot = snapRotation(g.start.rotation + ((Math.atan2(v.y, v.x) - Math.atan2(v0.y, v0.x)) * 180) / Math.PI);
+      layer.size = clampSize(layer, g.start.size * ratio);
+      layer.rotation = rot;
     } else if (g.type === 'pinch' && pts.length >= 2) {
       const [a, b] = pts;
       const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
       const d = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
-      const scale = clampScale(g.t0.scale * (d / g.d0));
-      const rotation = snapRotation(g.t0.rotation + ((ang - g.a0) * 180) / Math.PI);
-      design.transform = transformAround(g.t0, g.m0.x, g.m0.y, scale, rotation, m.x - g.m0.x, m.y - g.m0.y);
+      const rot = snapRotation(g.start.rotation + ((ang - g.a0) * 180) / Math.PI);
+      Object.assign(layer, clone(g.start));
+      scaleRotate(layer, g.start, g.m0.x, g.m0.y, d / g.d0, rot, m.x - g.m0.x, m.y - g.m0.y);
     }
+    g.moved = true;
     changed();
   });
 
   function endPointer(e) {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
-    if (pointers.size === 0) {
-      const t = tap;
-      tap = null;
-      gesture = null;
-      canvas.classList.remove('is-grabbing');
-      if (t && tapMode && e.type === 'pointerup' && t.id === e.pointerId && onTap) {
-        const pt = api.screenToImage(t.x, t.y);
-        if (pt) onTap(pt);
+    if (pointers.size > 0) {
+      startGesture();
+      return;
+    }
+    const t = tap;
+    const moved = gesture && gesture.moved;
+    tap = null;
+    gesture = null;
+    guides = { v: false, h: false };
+    canvas.classList.remove('is-grabbing');
+    redraw();
+    if (t && e.type === 'pointerup' && t.id === e.pointerId) {
+      if (tapMode) {
+        const l = layerById(rawLayerId);
+        const pt = l && api.screenToImage(l, t.x, t.y);
+        if (pt && onTap) onTap(pt);
         return;
       }
-      commit();
-    } else {
-      startGesture();
+      const l = selectedLayer();
+      const now = performance.now();
+      if (l && l.type === 'text' && lastTap && lastTap.id === l.id && now - lastTap.t < 420) {
+        onEditText && onEditText(l);
+        lastTap = null;
+      } else {
+        lastTap = l ? { id: l.id, t: now } : null;
+      }
+      if (!l && sel && sel.cell != null && onEmptyCell) onEmptyCell(sel.cell);
     }
+    if (moved) commit();
   }
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
@@ -241,15 +529,20 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   canvas.addEventListener(
     'wheel',
     (e) => {
-      if (!img) return;
-      e.preventDefault();
       const p = localPoint(e);
-      const t0 = design.transform;
+      let layer = tapMode ? layerById(rawLayerId) : hitLayer(toMM(p)) || selectedLayer();
+      if (!layer) return;
+      e.preventDefault();
+      if (!tapMode && (!sel || sel.id !== layer.id)) setSel({ id: layer.id });
+      const start = clone(layer);
       if (e.shiftKey) {
-        design.transform = transformAround(t0, view.cx, view.cy, t0.scale, snapRotation(t0.rotation + Math.sign(e.deltaY) * 3));
+        const c = layerCenterPx(layer);
+        const pivot = layer.type === 'photo' ? cellCenterPx(cells()[layer.cell]) : c;
+        scaleRotate(layer, start, pivot.x, pivot.y, 1, snapRotation(layer.rotation + Math.sign(e.deltaY) * 3));
       } else {
         const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
-        design.transform = transformAround(t0, p.x, p.y, clampScale(t0.scale * factor), t0.rotation);
+        const pivot = layer.type === 'photo' ? p : layerCenterPx(layer);
+        scaleRotate(layer, start, pivot.x, pivot.y, factor, layer.rotation);
       }
       changed();
       clearTimeout(wheelTimer);
@@ -259,21 +552,27 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   );
 
   canvas.addEventListener('keydown', (e) => {
-    if (!img) return;
-    const step = e.shiftKey ? 5 : 1;
-    const t = design.transform;
-    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
-    if (moves[e.key]) {
-      design.transform = { ...t, x: t.x + moves[e.key][0], y: t.y + moves[e.key][1] };
-    } else if (e.key === '+' || e.key === '=') {
-      api.setZoom(api.getZoom() * 1.1);
-      return e.preventDefault();
-    } else if (e.key === '-') {
-      api.setZoom(api.getZoom() / 1.1);
-      return e.preventDefault();
-    } else {
+    const layer = selectedLayer();
+    if (!layer) return;
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !tapMode) {
+      e.preventDefault();
+      onDelete && onDelete(layer);
       return;
     }
+    if (e.key === 'Escape') {
+      setSel(null);
+      return;
+    }
+    const step = e.shiftKey ? 5 : 1;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    if (moves[e.key]) {
+      layer.x += moves[e.key][0];
+      layer.y += moves[e.key][1];
+    } else if (e.key === '+' || e.key === '=' || e.key === '-') {
+      const start = clone(layer);
+      const c = layer.type === 'photo' ? cellCenterPx(cells()[layer.cell]) : layerCenterPx(layer);
+      scaleRotate(layer, start, c.x, c.y, e.key === '-' ? 1 / 1.1 : 1.1, layer.rotation);
+    } else return;
     e.preventDefault();
     changed();
     commit();
@@ -281,116 +580,187 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
 
   const ro = new ResizeObserver(redraw);
   ro.observe(canvas);
+  if (document.fonts) document.fonts.addEventListener('loadingdone', redraw);
+
+  // Fotos acompanham quando o espaço muda de tamanho (moldura, colagem, posição do card).
+  function rescalePhoto(layer, oldCell, newCell) {
+    const s = imgSize(layer);
+    if (!s || !oldCell || !newCell) return;
+    const f = coverScale(s.iw, s.ih, newCell.w, newCell.h, layer.rotation) / coverScale(s.iw, s.ih, oldCell.w, oldCell.h, layer.rotation);
+    layer.scale *= f;
+    layer.x *= f;
+    layer.y *= f;
+  }
 
   // ---------- API ----------
   const api = {
-    hasImage: () => !!img,
-    getImage: () => img,
-    getDesign: () => ({ ...design, transform: { ...design.transform } }),
+    get design() {
+      return design;
+    },
+    snapshot: () => JSON.stringify(design),
+    getSideName: () => sideName,
+    side,
+    cells,
+    layerById,
+    selectedLayer,
+    getSelection: () => sel,
 
-    load(newImg, newDesign) {
-      img = newImg;
-      design = { ...newDesign, transform: { ...newDesign.transform } };
+    load(d, { side: s = 'front' } = {}) {
+      design = clone(d);
+      sideName = s;
+      sel = null;
       layout();
       redraw();
+      onSelect && onSelect(sel);
     },
 
-    clear() {
-      img = null;
-      design = { ...design, transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false } };
+    // Volta um estado (desfazer/refazer) sem perder o que estava escolhido, se ainda existir.
+    restore(d) {
+      design = clone(d);
+      if (sel && sel.id && !layerById(sel.id)) sel = null;
+      if (sel && sel.cell != null && !cells()[sel.cell]) sel = null;
       redraw();
+      onSelect && onSelect(sel);
+      onChange && onChange(design);
     },
 
-    fit() {
-      if (!img) return;
-      design.transform = { x: 0, y: 0, scale: baseCover(), rotation: 0, flip: design.transform.flip };
+    setSide(s) {
+      if (s === sideName) return;
+      sideName = s;
+      setSel(null);
+      changed();
+    },
+
+    select(id) {
+      setSel(id ? { id } : null);
+    },
+    selectCell(i) {
+      setSel(i == null ? null : { cell: i });
+    },
+
+    // Muda o card: fn(design, lado). commit = guarda para desfazer.
+    change(fn, { commit: c = false } = {}) {
+      fn(design, side());
+      changed();
+      if (c) commit();
+    },
+    commitNow: commit,
+    redraw,
+
+    // Para mudanças que mexem nos espaços das fotos. Devolve quantas fotos saíram.
+    // refit = foto volta a preencher o espaço (usado pelos modelos).
+    restructure(fn, { refit = false } = {}) {
+      const before = cells();
+      fn(side(), design);
+      const after = cells();
+      let removed = 0;
+      const s = side();
+      s.layers = s.layers.filter((l) => {
+        if (l.type !== 'photo') return true;
+        if (!after[l.cell]) {
+          removed++;
+          return false;
+        }
+        if (refit) {
+          l.x = 0;
+          l.y = 0;
+          l.rotation = 0;
+          l.scale = baseCover(l, after[l.cell]);
+        } else rescalePhoto(l, before[l.cell] || after[l.cell], after[l.cell]);
+        return true;
+      });
+      // não deixa duas fotos no mesmo espaço
+      const seen = new Set();
+      s.layers = s.layers.filter((l) => {
+        if (l.type !== 'photo') return true;
+        if (seen.has(l.cell)) {
+          removed++;
+          return false;
+        }
+        seen.add(l.cell);
+        return true;
+      });
+      if (sel && sel.id && !layerById(sel.id)) sel = null;
+      if (sel && sel.cell != null && !after[sel.cell]) sel = null;
+      onSelect && onSelect(sel);
       changed();
       commit();
+      return removed;
     },
 
     setOrientation(o) {
       if (o === design.orientation) return;
-      design.orientation = o;
-      if (img) {
-        const t = design.transform;
-        design.transform = { ...t, x: 0, y: 0, scale: coverScale(img.naturalWidth || img.width, img.naturalHeight || img.height, o, t.rotation) };
+      const old = cardSize(design.orientation);
+      const nw = cardSize(o);
+      for (const name of ['front', 'back']) {
+        const s = design[name];
+        const before = cellRects(s, design.orientation);
+        const after = cellRects(s, o);
+        for (const l of s.layers) {
+          if (l.type === 'photo') {
+            rescalePhoto(l, before[l.cell], after[l.cell]);
+          } else {
+            l.x *= nw.w / old.w;
+            l.y *= nw.h / old.h;
+          }
+        }
       }
+      design.orientation = o;
+      layout();
       changed();
       commit();
     },
 
-    setBackground(color) {
-      design.bg = color;
+    // Foto: zoom em relação a "preencher o espaço".
+    getZoom(layer) {
+      return layer.scale / baseCover(layer);
+    },
+    setZoom(layer, z) {
+      const start = clone(layer);
+      const c = cellCenterPx(cells()[layer.cell]);
+      scaleRotate(layer, start, c.x, c.y, (z * baseCover(layer)) / layer.scale, layer.rotation);
+      changed();
+    },
+    setRotation(layer, deg) {
+      const start = clone(layer);
+      const c = layer.type === 'photo' ? cellCenterPx(cells()[layer.cell]) : layerCenterPx(layer);
+      scaleRotate(layer, start, c.x, c.y, 1, snapRotation(deg));
+      changed();
+    },
+    fitPhoto(layer) {
+      layer.x = 0;
+      layer.y = 0;
+      layer.rotation = 0;
+      layer.scale = baseCover(layer);
       changed();
       commit();
     },
-
-    getZoom: () => (img ? design.transform.scale / baseCover() : 1),
-    setZoom(z, { silent } = {}) {
-      if (!img) return;
-      const t0 = design.transform;
-      design.transform = transformAround(t0, view.cx, view.cy, clampScale(z * baseCover()), t0.rotation);
-      changed();
-      if (!silent) commit();
-    },
-    zoomLimits: () => ({ min: ZOOM_MIN, max: ZOOM_MAX }),
-
-    getRotation: () => design.transform.rotation,
-    setRotation(deg, { silent } = {}) {
-      if (!img) return;
-      const t0 = design.transform;
-      design.transform = transformAround(t0, view.cx, view.cy, t0.scale, snapRotation(deg));
-      changed();
-      if (!silent) commit();
-    },
-    rotate90() {
-      api.setRotation(design.transform.rotation + 90);
+    coverFor(layer, cell) {
+      return baseCover(layer, cell);
     },
 
-    flip() {
-      if (!img) return;
-      design.transform = { ...design.transform, flip: !design.transform.flip };
-      changed();
-      commit();
-    },
-
-    commitNow: commit,
-
-    // Troca só a imagem, mantendo o enquadramento (usado pelo "tirar fundo").
-    swapImage(newImg) {
-      img = newImg;
-      redraw();
-    },
-    setTapMode(on) {
+    setTapMode(on, layerId = null) {
       tapMode = !!on;
+      rawLayerId = on ? layerId : null;
       canvas.classList.toggle('is-tap-mode', tapMode);
-    },
-    setChecker(on) {
-      checker = !!on;
       redraw();
     },
 
     // Ponto da tela -> pixel da foto (ou null se caiu fora dela).
-    screenToImage(px, py) {
-      if (!img) return null;
-      const t = design.transform;
+    screenToImage(layer, px, py) {
+      const s = imgSize(layer);
+      if (!s) return null;
+      const c = layerCenterPx(layer);
       const k = view.k;
-      const iw = img.naturalWidth || img.width;
-      const ih = img.naturalHeight || img.height;
-      let vx = px - (view.cx + t.x * k);
-      let vy = py - (view.cy + t.y * k);
-      const a = (-t.rotation * Math.PI) / 180;
+      let vx = px - c.x;
+      let vy = py - c.y;
+      const a = (-layer.rotation * Math.PI) / 180;
       const rx = vx * Math.cos(a) - vy * Math.sin(a);
       const ry = vx * Math.sin(a) + vy * Math.cos(a);
-      vx = (t.flip ? -rx : rx) / (t.scale * k) + iw / 2;
-      vy = ry / (t.scale * k) + ih / 2;
-      if (vx < 0 || vy < 0 || vx >= iw || vy >= ih) return null;
+      vx = (layer.flip ? -rx : rx) / (layer.scale * k) + s.iw / 2;
+      vy = ry / (layer.scale * k) + s.ih / 2;
+      if (vx < 0 || vy < 0 || vx >= s.iw || vy >= s.ih) return null;
       return { x: vx, y: vy };
-    },
-
-    destroy() {
-      ro.disconnect();
-      if (raf) cancelAnimationFrame(raf);
     },
 
     // Posição do card na tela (para a animação de "voar para a folha").
@@ -398,6 +768,12 @@ export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
       const r = cardRect();
       const c = canvas.getBoundingClientRect();
       return { left: c.left + r.left, top: c.top + r.top, width: r.w, height: r.h };
+    },
+
+    destroy() {
+      ro.disconnect();
+      if (document.fonts) document.fonts.removeEventListener('loadingdone', redraw);
+      if (raf) cancelAnimationFrame(raf);
     },
   };
 

@@ -1,7 +1,7 @@
 {
   "name": "Aplicativo da Lavínia",
   "short_name": "Lavínia",
-  "description": "Crie photo cards e imprima em folha A4 com marcas de corte.",
+  "description": "Crie photo cards com textos, adesivos e molduras e imprima em folha A4 com marcas de corte.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",
