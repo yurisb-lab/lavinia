@@ -17,6 +17,7 @@
   --mint-line-strong: rgba(46, 128, 96, 0.3);
   --butter: #ffe9a3;
   --sky: #d5ebff;
+  --sky-ink: #2b5f91;
   --surface: #ffffff;
   --danger: #b4233a;
 
@@ -899,6 +900,59 @@ input[type='range']:focus-visible::-webkit-slider-thumb {
   animation: spin 1.1s linear infinite;
 }
 
+/* Botão e painel "Pôr fundo" */
+.tool-btn--layer {
+  background: var(--sky);
+}
+
+.tool-btn--layer .ic {
+  color: var(--sky-ink);
+}
+
+.tool-btn--layer:hover:not(:disabled) {
+  background: #c2e1ff;
+}
+
+.tools.is-layer-mode > .tool-row {
+  display: none;
+}
+
+.bg-panel--layer {
+  background: var(--sky);
+}
+
+.bg-panel--layer .bg-panel__title {
+  color: var(--sky-ink);
+}
+
+.bg-panel--layer .bg-panel__help {
+  color: #24486b;
+}
+
+.bg-panel--layer .tool-btn .ic {
+  color: var(--sky-ink);
+}
+
+.bg-panel__row--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stage__layer {
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: var(--sky-ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 @media (min-width: 901px) {
   .tool-btn {
     display: inline-flex;
@@ -1462,8 +1516,11 @@ span.slot {
   }
   .tool-row {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
+  }
+  .bg-panel__row--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .tool-btn {
     font-size: 13px;

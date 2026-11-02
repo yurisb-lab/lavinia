@@ -51,6 +51,7 @@ function template() {
         <div class="stage__drop" aria-hidden="true"><span>${icon('heart', { size: 28, fill: true })} Solte a imagem aqui</span></div>
         <span class="stage__size" data-size>${size}</span>
         <span class="stage__busy" data-busy hidden>${icon('wand', { size: 18 })}Apagando o fundo…</span>
+        <span class="stage__layer" data-layer-chip hidden>${icon('layers', { size: 18 })}Mexendo no fundo</span>
       </div>
       <p class="stage__hint" data-hint hidden>
         ${isTouch ? 'Arraste com um dedo para mover. Com dois dedos, abra para aumentar e gire para inclinar.' : 'Arraste para mover. Use a rodinha do mouse para aumentar (com Shift, para girar).'}
@@ -73,6 +74,7 @@ function template() {
           <button type="button" class="tool-btn" data-act="flip">${icon('flip', { size: 22 })}Espelhar</button>
           <button type="button" class="tool-btn" data-act="fit">${icon('center', { size: 22 })}Encaixar</button>
           <button type="button" class="tool-btn tool-btn--magic" data-act="bg">${icon('wand', { size: 22 })}Tirar fundo</button>
+          <button type="button" class="tool-btn tool-btn--layer" data-act="layer">${icon('layers', { size: 22 })}Pôr fundo</button>
           <button type="button" class="tool-btn" data-act="pick">${icon('photo', { size: 22 })}Trocar foto</button>
           <button type="button" class="tool-btn" data-act="paste">${icon('upload', { size: 22 })}Colar</button>
         </div>
@@ -92,6 +94,19 @@ function template() {
             <button type="button" class="tool-btn" data-act="bg-reset">${icon('photo', { size: 22 })}Foto original</button>
           </div>
           <button type="button" class="btn btn--primary" data-act="bg-done">${icon('check', { size: 22 })}Pronto</button>
+        </div>
+        <div class="bg-panel bg-panel--layer" data-layer-panel hidden>
+          <div class="bg-panel__head">
+            <p class="bg-panel__title">${icon('layers', { size: 22 })}Foto de fundo</p>
+            <p class="bg-panel__help" data-layer-help></p>
+          </div>
+          <div class="bg-panel__row bg-panel__row--4">
+            <button type="button" class="tool-btn" data-act="pick">${icon('photo', { size: 22 })}Escolher foto</button>
+            <button type="button" class="tool-btn" data-act="paste">${icon('upload', { size: 22 })}Colar</button>
+            <button type="button" class="tool-btn" data-act="fit" data-layer-needs>${icon('center', { size: 22 })}Encaixar</button>
+            <button type="button" class="tool-btn" data-act="layer-remove" data-layer-needs>${icon('trash', { size: 22 })}Remover</button>
+          </div>
+          <button type="button" class="btn btn--primary" data-act="layer-done">${icon('check', { size: 22 })}Pronto</button>
         </div>
         <div class="swatches" role="radiogroup" aria-label="Cor de fundo do card">
           <span class="swatches__label">${icon('palette', { size: 20 })}Cor de fundo</span>
@@ -154,6 +169,7 @@ export async function mount(root) {
   let currentBlob = null;
   let originalBlob = null; // foto antes de tirar o fundo (para poder voltar)
   let bgOps = null; // o que foi feito no "tirar fundo": { ops, tolerance }
+  let layerBlob = null; // foto de fundo do card ("Pôr fundo")
   let pdfUrl = null;
   let pdfFile = null;
   let draftTimer = 0;
@@ -195,6 +211,7 @@ export async function mount(root) {
     $('[data-new-label]').textContent = editingId ? 'Cancelar edição' : 'Começar outro card';
     $('[data-act="save"]').disabled = !has;
     syncBg();
+    syncLayer();
   }
 
   zoomInput.addEventListener('input', () => editor.setZoom(sliderToZoom(+zoomInput.value), { silent: true }));
@@ -204,6 +221,8 @@ export async function mount(root) {
 
   // ---------- abrir imagem (arquivo, arrastar, colar) ----------
   async function useImageBlob(fileOrBlob) {
+    // Com o painel "Foto de fundo" aberto, a imagem vai para o fundo.
+    if (layer.active) return useLayerBlob(fileOrBlob);
     try {
       const { blob, img } = await importImageFile(fileOrBlob);
       cancelBg();
@@ -212,7 +231,12 @@ export async function mount(root) {
       currentBlob = blob;
       originalBlob = null;
       bgOps = null;
-      editor.load(img, { orientation: d.orientation, bg: d.bg, transform: defaultTransform(img.naturalWidth, img.naturalHeight, d.orientation) });
+      // Trocar a foto mantém a foto de fundo que já estava.
+      editor.load(
+        img,
+        { orientation: d.orientation, bg: d.bg, transform: defaultTransform(img.naturalWidth, img.naturalHeight, d.orientation), bgTransform: d.bgTransform },
+        editor.getBgImage()
+      );
       if (prev && prev !== img) releaseImage(prev);
       syncControls();
       saveDraftSoon();
@@ -305,7 +329,7 @@ export async function mount(root) {
   }
 
   function draftData() {
-    return { imageBlob: currentBlob, originalBlob, bgOps, design: editor.getDesign(), editingId };
+    return { imageBlob: currentBlob, originalBlob, bgOps, layerBlob: editor.hasBgImage() ? layerBlob : null, design: editor.getDesign(), editingId };
   }
 
   async function restoreDraft() {
@@ -313,24 +337,30 @@ export async function mount(root) {
       const draft = await db.getMeta('draft');
       if (!draft || !draft.imageBlob) return;
       const img = await blobToImage(draft.imageBlob);
+      const layerImg = draft.layerBlob && draft.design.bgTransform ? await blobToImage(draft.layerBlob).catch(() => null) : null;
       if (!alive) return;
       currentBlob = draft.imageBlob;
       originalBlob = draft.originalBlob || null;
       bgOps = draft.bgOps || null;
+      layerBlob = layerImg ? draft.layerBlob : null;
       editingId = draft.editingId && cards.some((c) => c.id === draft.editingId) ? draft.editingId : null;
-      editor.load(img, draft.design);
+      editor.load(img, draft.design, layerImg);
       syncControls();
     } catch (_) {}
   }
 
   function resetEditor() {
     cancelBg();
+    leaveLayer();
     const prev = editor.getImage();
+    const prevLayer = editor.getBgImage();
     editor.clear();
     if (prev) releaseImage(prev);
+    if (prevLayer) releaseImage(prevLayer);
     currentBlob = null;
     originalBlob = null;
     bgOps = null;
+    layerBlob = null;
     editingId = null;
     db.deleteMeta('draft').catch(() => {});
     syncControls();
@@ -361,7 +391,7 @@ export async function mount(root) {
     $('[data-act="bg-done"]').disabled = !bg.active || bg.running;
     tolInput.disabled = !bg.active || !has;
     $('[data-tol-out]').textContent = bg.tolerance;
-    $('[data-hint]').hidden = !has || bg.active;
+    $('[data-hint]').hidden = !has || bg.active || layer.active;
   }
 
   async function enterBg() {
@@ -468,6 +498,86 @@ export async function mount(root) {
     bg.timer = setTimeout(() => runBg(), 90);
   });
 
+  // ---------- pôr fundo (foto atrás da foto) ----------
+  const layer = { active: false };
+
+  function syncLayer() {
+    const hasLayer = editor.hasBgImage();
+    $('[data-tools]').classList.toggle('is-layer-mode', layer.active);
+    $('[data-layer-panel]').hidden = !layer.active;
+    $('[data-layer-chip]').hidden = !layer.active;
+    if (!layer.active) return;
+    // As barras "Tamanho" e "Inclinar" passam a mexer no fundo.
+    [zoomInput, rotInput, ...$$('[data-act="zoom-in"], [data-act="zoom-out"], [data-layer-needs]')].forEach((b) => (b.disabled = !hasLayer));
+    $('[data-layer-help]').textContent = hasLayer
+      ? `Agora só o fundo se mexe: ${isTouch ? 'arraste, abra os dedos para aumentar e gire para inclinar' : 'arraste, use a rodinha para aumentar (com Shift, para girar)'}. Sua foto fica parada na frente.`
+      : `Escolha uma foto${isTouch ? ' ou cole uma imagem que você copiou' : ', cole com Ctrl+V ou arraste uma imagem para cá'}. Ela vai ficar atrás da sua foto.`;
+  }
+
+  // A foto tem partes transparentes? (Se não tiver, o fundo novo fica escondido atrás dela.)
+  function hasTransparency(im) {
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(im, 0, 0, 64, 64);
+      const d = g.getImageData(0, 0, 64, 64).data;
+      for (let i = 3; i < d.length; i += 4) if (d[i] < 200) return true;
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function enterLayer() {
+    if (layer.active || !editor.hasImage()) return;
+    cancelBg();
+    layer.active = true;
+    editor.setTarget('bg');
+    syncControls();
+    if (!hasTransparency(editor.getImage())) {
+      toast('Dica: tire o fundo da sua foto para o fundo novo aparecer atrás.', {
+        action: 'Tirar fundo',
+        duration: 7000,
+        onAction: () => {
+          leaveLayer();
+          enterBg();
+        },
+      });
+    }
+  }
+
+  function leaveLayer() {
+    if (!layer.active) return;
+    layer.active = false;
+    editor.setTarget('photo');
+    syncControls();
+    saveDraftSoon();
+  }
+
+  async function useLayerBlob(fileOrBlob) {
+    try {
+      const { blob, img } = await importImageFile(fileOrBlob);
+      if (!alive || !editor.hasImage()) return releaseImage(img);
+      const prev = editor.getBgImage();
+      layerBlob = blob;
+      editor.setBgImage(img);
+      if (prev && prev !== img) releaseImage(prev);
+      syncControls();
+    } catch (err) {
+      toast(err.message || 'Não consegui abrir essa imagem.', { kind: 'error' });
+    }
+  }
+
+  function removeLayer() {
+    const prev = editor.getBgImage();
+    if (!prev) return;
+    editor.clearBgImage();
+    releaseImage(prev);
+    layerBlob = null;
+    syncControls();
+  }
+
   // ---------- folha ----------
   async function loadCards() {
     const list = await db.allCards();
@@ -542,9 +652,11 @@ export async function mount(root) {
     btn.disabled = true;
     try {
       if (bg.active) await finishBg();
+      leaveLayer();
       const design = editor.getDesign();
       const img = editor.getImage();
-      const thumbBlob = await canvasToBlob(renderThumb(img, design), 'image/png');
+      const layerImg = editor.getBgImage();
+      const thumbBlob = await canvasToBlob(renderThumb(img, design, layerImg), 'image/png');
       const fromRect = editor.cardScreenRect();
       const wasEditing = editingId;
       let record;
@@ -558,6 +670,7 @@ export async function mount(root) {
         record.originalBlob = originalBlob;
         record.bgOps = bgOps;
       }
+      if (layerImg && layerBlob) record.layerBlob = layerBlob;
       await db.putCard(record);
       await loadCards();
       resetEditor();
@@ -611,14 +724,19 @@ export async function mount(root) {
     if (!card) return;
     try {
       const img = await blobToImage(card.imageBlob);
+      const layerImg = card.layerBlob && card.design.bgTransform ? await blobToImage(card.layerBlob).catch(() => null) : null;
       cancelBg();
+      leaveLayer();
       const prev = editor.getImage();
+      const prevLayer = editor.getBgImage();
       editingId = id;
       currentBlob = card.imageBlob;
       originalBlob = card.originalBlob || null;
       bgOps = card.bgOps || null;
-      editor.load(img, card.design);
+      layerBlob = layerImg ? card.layerBlob : null;
+      editor.load(img, card.design, layerImg);
       if (prev) releaseImage(prev);
+      if (prevLayer) releaseImage(prevLayer);
       syncControls();
       renderSheet();
       saveDraftSoon();
@@ -673,12 +791,21 @@ export async function mount(root) {
     btn.classList.add('is-busy');
     label.textContent = 'Montando a folha…';
     try {
-      const withImages = await Promise.all(cards.map(async (c) => ({ ...c, img: await blobToImage(c.imageBlob) })));
+      const withImages = await Promise.all(
+        cards.map(async (c) => ({
+          ...c,
+          img: await blobToImage(c.imageBlob),
+          bgImg: c.layerBlob && c.design.bgTransform ? await blobToImage(c.layerBlob) : null,
+        }))
+      );
       const doc = await buildPdf(withImages, {
         cutLine: $('[data-cutline]').checked,
         onProgress: (p) => (label.textContent = `Montando a folha… ${Math.round(p * 100)}%`),
       });
-      withImages.forEach((c) => releaseImage(c.img));
+      withImages.forEach((c) => {
+        releaseImage(c.img);
+        releaseImage(c.bgImg);
+      });
       if (!alive) return;
       const blob = doc.output('blob');
       invalidatePdf();
@@ -718,6 +845,9 @@ export async function mount(root) {
     else if (act === 'flip') editor.flip();
     else if (act === 'fit') editor.fit();
     else if (act === 'bg') enterBg();
+    else if (act === 'layer') enterLayer();
+    else if (act === 'layer-done') leaveLayer();
+    else if (act === 'layer-remove') removeLayer();
     else if (act === 'bg-done') finishBg();
     else if (act === 'bg-undo') {
       bg.ops.pop();

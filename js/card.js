@@ -64,21 +64,25 @@ export function drawImage(ctx, img, t, cx, cy, k) {
   ctx.restore();
 }
 
-// Desenha o card completo (fundo + foto, recortado com cantos arredondados).
-export function drawCard(ctx, img, design, left, top, k) {
+// Desenha o card completo (cor de fundo + foto de fundo + foto, recortado com cantos arredondados).
+// bgImg é a foto de fundo opcional; ela usa design.bgTransform.
+export function drawCard(ctx, img, design, left, top, k, bgImg = null) {
   const { w, h } = cardSize(design.orientation);
+  const cx = left + (w * k) / 2;
+  const cy = top + (h * k) / 2;
   ctx.save();
   roundRectPath(ctx, left, top, w * k, h * k, CARD.radius * k);
   ctx.clip();
   ctx.fillStyle = design.bg || '#ffffff';
   ctx.fillRect(left, top, w * k, h * k);
-  drawImage(ctx, img, design.transform, left + (w * k) / 2, top + (h * k) / 2, k);
+  if (bgImg && design.bgTransform) drawImage(ctx, bgImg, design.bgTransform, cx, cy, k);
+  drawImage(ctx, img, design.transform, cx, cy, k);
   ctx.restore();
 }
 
 // Gera o card em alta resolução, sempre em pé (54 x 86 mm), pronto para a folha.
 // Cards deitados são girados 90° no sentido horário.
-export function renderForPrint(img, design, pxPerMm = PX_PER_MM_PRINT) {
+export function renderForPrint(img, design, bgImg = null, pxPerMm = PX_PER_MM_PRINT) {
   const { w, h } = cardSize(design.orientation);
   const src = document.createElement('canvas');
   src.width = Math.round(w * pxPerMm);
@@ -86,7 +90,7 @@ export function renderForPrint(img, design, pxPerMm = PX_PER_MM_PRINT) {
   const sctx = src.getContext('2d');
   sctx.fillStyle = '#ffffff';
   sctx.fillRect(0, 0, src.width, src.height);
-  drawCard(sctx, img, design, 0, 0, src.width / w);
+  drawCard(sctx, img, design, 0, 0, src.width / w, bgImg);
 
   if (design.orientation !== 'landscape') return src;
 
@@ -101,13 +105,13 @@ export function renderForPrint(img, design, pxPerMm = PX_PER_MM_PRINT) {
 }
 
 // Miniatura na orientação do próprio card.
-export function renderThumb(img, design, longSide = 360) {
+export function renderThumb(img, design, bgImg = null, longSide = 360) {
   const { w, h } = cardSize(design.orientation);
   const k = longSide / Math.max(w, h);
   const c = document.createElement('canvas');
   c.width = Math.round(w * k);
   c.height = Math.round(h * k);
   const ctx = c.getContext('2d');
-  drawCard(ctx, img, design, 0, 0, k);
+  drawCard(ctx, img, design, 0, 0, k, bgImg);
   return c;
 }
