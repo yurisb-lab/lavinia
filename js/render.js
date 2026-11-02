@@ -6,6 +6,7 @@ import {
   PX_PER_MM_PRINT,
   cardSize,
   cellRects,
+  BG_CELL,
   frameInfo,
   frameWindow,
   inkFor,
@@ -366,6 +367,14 @@ export function drawSide(ctx, design, sideName, getImg, opt) {
   ctx.clip();
 
   paintBg(ctx, side.bg, area, card, k, checker);
+
+  // foto de fundo: atrás da moldura e das outras fotos
+  for (const layer of side.layers) {
+    if (layer.type !== 'photo' || layer.cell !== BG_CELL) continue;
+    const img = getImg(layer.imageKey);
+    if (img) drawPhoto(ctx, img, layer, ccx, ccy, k, maxSide, layer.id === rawLayerId);
+  }
+
   paintFrame(ctx, side.frame, design.orientation, area, card, k);
 
   const cells = cellRects(side, design.orientation);
@@ -378,6 +387,7 @@ export function drawSide(ctx, design, sideName, getImg, opt) {
 
   for (const layer of side.layers) {
     if (layer.type === 'photo') {
+      if (layer.cell === BG_CELL) continue;
       const cell = cells[layer.cell];
       const img = getImg(layer.imageKey);
       if (!cell || !img) continue;

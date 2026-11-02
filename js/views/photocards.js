@@ -3,7 +3,10 @@
 import { createEditor } from '../editor.js';
 import {
   CARD,
+  BG_CELL,
   cardSize,
+  cellFor,
+  isBgPhoto,
   coverScale,
   imageKeys,
   migrateRecord,
@@ -83,6 +86,7 @@ function template() {
         <div class="stage__drop" aria-hidden="true"><span>${icon('heart', { size: 28, fill: true })} Solte a imagem aqui</span></div>
         <span class="stage__size" data-size>${sizeText('portrait')}</span>
         <span class="stage__cut" aria-hidden="true"><i></i>linha de corte</span>
+        <span class="stage__badge" data-bg-badge hidden>${icon('photo', { size: 18 })}Mexendo no fundo</span>
         <span class="stage__busy" data-busy hidden>${icon('wand', { size: 18 })}Apagando o fundo…</span>
       </div>
       <p class="stage__hint" data-hint></p>
@@ -159,6 +163,7 @@ export async function mount(root) {
   let editingId = null;
   let tab = 'foto';
   let pickCell = null;
+  let pickBg = false; // a próxima foto escolhida vai para o fundo
   let pdfUrl = null;
   let pdfFile = null;
   let draftTimer = 0;
@@ -237,6 +242,7 @@ export async function mount(root) {
     $('[data-act="save"]').disabled = isEmpty(d);
     $('[data-act="new"]').disabled = lock;
     $('[data-empty]').hidden = lock || sideName !== 'front' || s.layers.length > 0 || !editor.cells().length;
+    $('[data-bg-badge]').hidden = lock || !isBgPhoto(L);
     $$('[data-tab]').forEach((b) => {
       b.disabled = lock;
       b.setAttribute('aria-selected', String(b.dataset.tab === tab));
@@ -248,7 +254,7 @@ export async function mount(root) {
     const bar = $('[data-selbar]');
     bar.hidden = !L || lock;
     if (L && !lock) {
-      const photos = s.layers.filter((l) => l.type === 'photo').length;
+      const photos = s.layers.filter((l) => l.type === 'photo' && !isBgPhoto(l)).length;
       const lab = layerLabel(L, 0, photos);
       const i = s.layers.indexOf(L);
       $('[data-sel-name]').innerHTML = `${lab.emoji ? `<span class="layer__emoji">${lab.emoji}</span>` : icon(lab.ic, { size: 20 })}<span></span>`;
@@ -262,6 +268,8 @@ export async function mount(root) {
     let hint = '';
     if (!lock) {
       if (!L) hint = s.layers.length ? `${tapWord} em alguma coisa do card para mexer nela.` : '';
+      else if (isBgPhoto(L))
+        hint = `Mexendo no fundo: ${isTouch ? 'arraste e use dois dedos' : 'arraste e use a rodinha'} para enquadrar. Toque em “Pronto” quando terminar.`;
       else if (L.type === 'photo')
         hint = isTouch
           ? 'Arraste com um dedo para mover a foto. Com dois dedos, abra para aumentar e gire para inclinar.'
@@ -306,7 +314,8 @@ export async function mount(root) {
     const L = selected();
     const sel = editor.getSelection();
     if (L) {
-      if (L.type === 'text' && tab !== 'camadas') tab = 'texto';
+      if (isBgPhoto(L)) tab = tab === 'camadas' || tab === 'efeitos' ? tab : 'fundo';
+      else if (L.type === 'text' && tab !== 'camadas') tab = 'texto';
       else if (L.type === 'sticker' && tab !== 'camadas') tab = 'adesivos';
       else if (L.type === 'photo' && !['foto', 'efeitos', 'camadas'].includes(tab)) tab = 'foto';
     } else if (sel && sel.cell != null && !['colagem', 'moldura', 'camadas'].includes(tab)) tab = 'foto';
@@ -445,8 +454,8 @@ export async function mount(root) {
     const cs = editor.cells();
     if (sel && sel.cell != null && cs[sel.cell]) return sel.cell;
     const L = selected();
-    if (L && L.type === 'photo') return L.cell;
-    const used = new Set(side().layers.filter((l) => l.type === 'photo').map((l) => l.cell));
+    if (L && L.type === 'photo' && !isBgPhoto(L)) return L.cell;
+    const used = new Set(side().layers.filter((l) => l.type === 'photo' && !isBgPhoto(l)).map((l) => l.cell));
     const free = cs.findIndex((_, i) => !used.has(i));
     return free >= 0 ? free : 0;
   }
@@ -486,19 +495,53 @@ export async function mount(root) {
     }
   }
 
-  function pickPhoto(cell = null) {
+  // Foto de fundo: ocupa o card inteiro, atrás de tudo. Fica escolhida para poder enquadrar.
+  async function placeBgPhoto(fileOrBlob) {
+    try {
+      const { blob, img } = await importImageFile(fileOrBlob);
+      if (!alive) return;
+      cancelBg();
+      const key = newId();
+      images.set(key, { blob, img });
+      const rect = cellFor(side(), editor.design.orientation, BG_CELL);
+      let id = null;
+      editor.change((d, s) => {
+        const old = s.layers.find(isBgPhoto);
+        if (old) {
+          Object.assign(old, { imageKey: key, originalKey: null, bgOps: null, x: 0, y: 0, rotation: 0, flip: false });
+          old.scale = coverScale(img.naturalWidth, img.naturalHeight, rect.w, rect.h, 0);
+          id = old.id;
+        } else {
+          const L = newPhotoLayer(key, BG_CELL, img, rect);
+          s.layers.unshift(L);
+          id = L.id;
+        }
+      });
+      editor.select(id);
+      editor.commitNow();
+    } catch (err) {
+      toast(err.message || 'Não consegui abrir essa imagem.', { kind: 'error' });
+    }
+  }
+
+  // Para onde vai uma imagem colada ou arrastada.
+  const placeAny = (file) => (isBgPhoto(selected()) ? placeBgPhoto(file) : placePhoto(file));
+
+  function pickPhoto(cell = null, toBg = false) {
     pickCell = cell;
+    pickBg = toBg;
     fileInput.click();
   }
 
   fileInput.addEventListener('change', () => {
     const f = fileInput.files && fileInput.files[0];
-    if (f) placePhoto(f, pickCell);
+    if (f) pickBg ? placeBgPhoto(f) : placePhoto(f, pickCell);
     pickCell = null;
+    pickBg = false;
     fileInput.value = '';
   });
 
-  async function pasteFromClipboard() {
+  async function pasteFromClipboard(toBg = false) {
     if (!navigator.clipboard || !navigator.clipboard.read) {
       toast(isTouch ? 'Este tablet não deixou colar por aqui. Use “Escolher foto”.' : 'Use Ctrl+V para colar a imagem.', { kind: 'error' });
       return;
@@ -507,7 +550,10 @@ export async function mount(root) {
       const items = await navigator.clipboard.read();
       for (const item of items) {
         const type = item.types.find((t) => t.startsWith('image/'));
-        if (type) return placePhoto(new File([await item.getType(type)], 'colada', { type }));
+        if (type) {
+          const file = new File([await item.getType(type)], 'colada', { type });
+          return toBg ? placeBgPhoto(file) : placePhoto(file);
+        }
       }
       toast('Não tem imagem copiada. Copie uma foto e tente de novo.', { kind: 'error' });
     } catch (_) {
@@ -522,7 +568,7 @@ export async function mount(root) {
     const item = items.find((i) => i.kind === 'file' && i.type.startsWith('image/'));
     if (!item) return;
     e.preventDefault();
-    placePhoto(item.getAsFile());
+    placeAny(item.getAsFile());
   }
   document.addEventListener('paste', onPaste);
 
@@ -550,7 +596,7 @@ export async function mount(root) {
     dragDepth = 0;
     stage.classList.remove('is-dropping');
     const file = [...(e.dataTransfer.files || [])].find((f) => f.type.startsWith('image/'));
-    if (file) return placePhoto(file);
+    if (file) return placeAny(file);
     // Imagem arrastada de outra página da internet.
     const url = (e.dataTransfer.getData('text/uri-list') || '').split('\n').find((l) => l && !l.startsWith('#'));
     if (!url) return toast('Isso não parece ser uma imagem.', { kind: 'error' });
@@ -558,7 +604,7 @@ export async function mount(root) {
       const res = await fetch(url.trim(), { mode: 'cors' });
       const blob = await res.blob();
       if (!blob.type.startsWith('image/')) throw new Error();
-      placePhoto(blob);
+      placeAny(blob);
     } catch (_) {
       toast('Esse site não deixou copiar a imagem. Salve a foto no aparelho e arraste o arquivo.', { kind: 'error', duration: 6000 });
     }
@@ -624,7 +670,7 @@ export async function mount(root) {
       let draft = await db.getMeta('draft');
       if (!draft) return;
       if (!draft.v && draft.imageBlob) {
-        const m = migrateRecord({ design: draft.design, imageBlob: draft.imageBlob, originalBlob: draft.originalBlob, bgOps: draft.bgOps });
+        const m = migrateRecord({ design: draft.design, imageBlob: draft.imageBlob, originalBlob: draft.originalBlob, bgOps: draft.bgOps, layerBlob: draft.layerBlob });
         draft = { v: 2, design: m.design, images: m.images, editingId: draft.editingId };
       }
       if (!draft.design || !draft.design.front) return;
@@ -838,7 +884,7 @@ export async function mount(root) {
     const s = side();
     const L = s.layers.find((l) => l.id === id);
     if (!L) return;
-    const what = L.type === 'photo' ? 'Foto tirada do card.' : L.type === 'text' ? 'Texto apagado.' : 'Adesivo apagado.';
+    const what = isBgPhoto(L) ? 'Foto de fundo tirada.' : L.type === 'photo' ? 'Foto tirada do card.' : L.type === 'text' ? 'Texto apagado.' : 'Adesivo apagado.';
     editor.change((d, sd) => (sd.layers = sd.layers.filter((l) => l.id !== id)), { commit: true });
     editor.select(null);
     toast(what, { action: 'Desfazer', duration: 6000, onAction: undo });
@@ -1132,7 +1178,28 @@ export async function mount(root) {
     if (act) {
       switch (act) {
         case 'pick':
+          if (isBgPhoto(L)) return pickPhoto(null, true);
           return pickPhoto(L && L.type === 'photo' ? L.cell : null);
+        case 'bgphoto-pick':
+          return pickPhoto(null, true);
+        case 'bgphoto-paste':
+          return pasteFromClipboard(true);
+        case 'bgphoto-edit': {
+          const bp = side().layers.find(isBgPhoto);
+          return bp && editor.select(bp.id);
+        }
+        case 'bgphoto-done':
+          return editor.select(null);
+        case 'bgphoto-remove': {
+          const bp = side().layers.find(isBgPhoto);
+          return bp && deleteLayer(bp.id);
+        }
+        case 'bg-front': {
+          const fp = side().layers.find((l) => l.type === 'photo' && !isBgPhoto(l));
+          if (!fp) return;
+          editor.select(fp.id);
+          return enterBg();
+        }
         case 'paste':
           return pasteFromClipboard();
         case 'undo':

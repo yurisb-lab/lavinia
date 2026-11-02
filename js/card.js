@@ -80,6 +80,20 @@ export function cellRects(side, orientation) {
   });
 }
 
+// Foto de fundo: ocupa o card inteiro, atrás da moldura e das outras fotos.
+export const BG_CELL = -1;
+
+// Espaço de uma foto (o card inteiro, se for a foto de fundo).
+export function cellFor(side, orientation, index) {
+  if (index === BG_CELL) {
+    const { w, h } = cardSize(orientation);
+    return { x: 0, y: 0, w, h, r: CARD.radius, cx: 0, cy: 0 };
+  }
+  return cellRects(side, orientation)[index] || null;
+}
+
+export const isBgPhoto = (l) => !!l && l.type === 'photo' && l.cell === BG_CELL;
+
 // Escala (mm por pixel da imagem) para a foto cobrir um espaço inteiro.
 export function coverScale(imgW, imgH, w, h, rotation = 0) {
   const r = (rotation * Math.PI) / 180;
@@ -192,6 +206,26 @@ export function migrateRecord(rec) {
       scale: t.scale,
       rotation: t.rotation,
       flip: !!t.flip,
+      fx: defaultFx(),
+      outline: defaultOutline(),
+    });
+  }
+  // foto de fundo ("Pôr fundo") da versão anterior
+  const bt = old.bgTransform;
+  if (rec.layerBlob && bt) {
+    images.f = rec.layerBlob;
+    design.front.layers.unshift({
+      id: uid(),
+      type: 'photo',
+      cell: BG_CELL,
+      imageKey: 'f',
+      originalKey: null,
+      bgOps: null,
+      x: bt.x,
+      y: bt.y,
+      scale: bt.scale,
+      rotation: bt.rotation,
+      flip: !!bt.flip,
       fx: defaultFx(),
       outline: defaultOutline(),
     });

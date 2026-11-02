@@ -1075,6 +1075,34 @@ input[type='range']:focus-visible::-webkit-slider-thumb {
   border-top: 2px dashed var(--berry-dark);
 }
 
+.stage__badge {
+  position: absolute;
+  right: 18px;
+  top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: var(--lilac-ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  pointer-events: none;
+  animation: pop 0.35s var(--ease-out);
+}
+
+.pnote--tip {
+  justify-items: start;
+  text-align: left;
+  background: var(--butter);
+  color: var(--ink);
+}
+
+.pnote__row--start {
+  justify-content: flex-start;
+}
+
 /* Barra do item escolhido */
 .selbar {
   display: flex;

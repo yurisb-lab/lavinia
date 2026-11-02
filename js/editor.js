@@ -2,7 +2,7 @@
 // Tocar escolhe; arrastar move; dois dedos (ou a rodinha) aumentam e giram.
 // A bolinha no canto de um texto ou adesivo também aumenta e gira, com um dedo ou o mouse.
 
-import { cardSize, cellRects, coverScale, newDesign, CARD } from './card.js';
+import { cardSize, cellRects, cellFor, coverScale, newDesign, isBgPhoto, BG_CELL, CARD } from './card.js';
 import { drawSide, drawPhoto, layerBox, roundRectPath } from './render.js';
 
 const ZOOM_MIN = 0.25; // foto: em relação ao "preencher o espaço"
@@ -39,6 +39,7 @@ export function createEditor(canvas, hooks = {}) {
   const cells = () => cellRects(side(), design.orientation);
   const layerById = (id) => side().layers.find((l) => l.id === id) || null;
   const selectedLayer = () => (sel && sel.id ? layerById(sel.id) : null);
+  const cellOf = (layer) => cellFor(side(), design.orientation, layer.cell);
 
   function imgSize(layer) {
     const img = getImg(layer.imageKey);
@@ -46,7 +47,7 @@ export function createEditor(canvas, hooks = {}) {
     return { iw: img.naturalWidth || img.width, ih: img.naturalHeight || img.height };
   }
 
-  function baseCover(layer, cell = cells()[layer.cell]) {
+  function baseCover(layer, cell = cellOf(layer)) {
     const s = imgSize(layer);
     if (!s || !cell) return 1;
     return coverScale(s.iw, s.ih, cell.w, cell.h, 0);
@@ -91,7 +92,7 @@ export function createEditor(canvas, hooks = {}) {
 
   function layerCenterPx(layer) {
     if (layer.type === 'photo') {
-      const c = cellCenterPx(cells()[layer.cell]);
+      const c = cellCenterPx(cellOf(layer));
       return { x: c.x + layer.x * view.k, y: c.y + layer.y * view.k };
     }
     return { x: view.cx + layer.x * view.k, y: view.cy + layer.y * view.k };
@@ -118,9 +119,13 @@ export function createEditor(canvas, hooks = {}) {
     for (let i = ls.length - 1; i >= 0; i--) {
       const l = ls[i];
       if (l.type === 'photo') {
-        if (cs[l.cell] && getImg(l.imageKey) && inCell(m, cs[l.cell])) return l;
+        if (l.cell !== BG_CELL && cs[l.cell] && getImg(l.imageKey) && inCell(m, cs[l.cell])) return l;
       } else if (inBox(m, l)) return l;
     }
+    // a foto de fundo só pega o toque onde não tem mais nada
+    const bgp = ls.find((l) => isBgPhoto(l) && getImg(l.imageKey));
+    const { w, h } = cardSize(design.orientation);
+    if (bgp && Math.abs(m.x) <= w / 2 && Math.abs(m.y) <= h / 2) return bgp;
     return null;
   }
 
@@ -170,7 +175,7 @@ export function createEditor(canvas, hooks = {}) {
     // A parte da foto que fica fora do espaço aparece apagadinha, como no Canva.
     if (sl && sl.type === 'photo') {
       const img = getImg(sl.imageKey);
-      const cell = cells()[sl.cell];
+      const cell = cellOf(sl);
       if (img && cell) {
         ctx.save();
         ctx.globalAlpha = 0.28;
@@ -251,8 +256,8 @@ export function createEditor(canvas, hooks = {}) {
     }
     if (!l) return;
     if (l.type === 'photo') {
-      const c = cells()[l.cell];
-      if (!c || cells().length < 2) return;
+      const c = cellOf(l);
+      if (!c || isBgPhoto(l) || cells().length < 2) return;
       ctx.save();
       roundRectPath(ctx, r.left + c.x * k, r.top + c.y * k, c.w * k, c.h * k, c.r * k);
       ctx.lineWidth = 3;
@@ -342,7 +347,7 @@ export function createEditor(canvas, hooks = {}) {
 
   function placeCenter(layer, cpx) {
     if (layer.type === 'photo') {
-      const cc = cellCenterPx(cells()[layer.cell]);
+      const cc = cellCenterPx(cellOf(layer));
       layer.x = (cpx.x - cc.x) / view.k;
       layer.y = (cpx.y - cc.y) / view.k;
     } else {
@@ -417,8 +422,11 @@ export function createEditor(canvas, hooks = {}) {
     if (pointers.size === 1) {
       tap = { id: e.pointerId, x: p.x, y: p.y };
       handleDown = false;
+      const sl = selectedLayer();
       if (tapMode) {
         downTarget = rawLayerId;
+      } else if (isBgPhoto(sl)) {
+        downTarget = sl.id; // mexendo no fundo: só ele se mexe
       } else if (onHandle(p)) {
         handleDown = true;
         downTarget = sel.id;
@@ -447,7 +455,7 @@ export function createEditor(canvas, hooks = {}) {
     if (!pointers.has(e.pointerId)) {
       // mouse passando por cima: mostra a mãozinha certa
       const p = localPoint(e);
-      const over = !tapMode && (onHandle(p) || hitLayer(toMM(p)));
+      const over = !tapMode && (isBgPhoto(selectedLayer()) || onHandle(p) || hitLayer(toMM(p)));
       canvas.classList.toggle('is-over', !!over);
       return;
     }
@@ -530,14 +538,15 @@ export function createEditor(canvas, hooks = {}) {
     'wheel',
     (e) => {
       const p = localPoint(e);
-      let layer = tapMode ? layerById(rawLayerId) : hitLayer(toMM(p)) || selectedLayer();
+      const sl = selectedLayer();
+      let layer = tapMode ? layerById(rawLayerId) : isBgPhoto(sl) ? sl : hitLayer(toMM(p)) || sl;
       if (!layer) return;
       e.preventDefault();
       if (!tapMode && (!sel || sel.id !== layer.id)) setSel({ id: layer.id });
       const start = clone(layer);
       if (e.shiftKey) {
         const c = layerCenterPx(layer);
-        const pivot = layer.type === 'photo' ? cellCenterPx(cells()[layer.cell]) : c;
+        const pivot = layer.type === 'photo' ? cellCenterPx(cellOf(layer)) : c;
         scaleRotate(layer, start, pivot.x, pivot.y, 1, snapRotation(layer.rotation + Math.sign(e.deltaY) * 3));
       } else {
         const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
@@ -570,7 +579,7 @@ export function createEditor(canvas, hooks = {}) {
       layer.y += moves[e.key][1];
     } else if (e.key === '+' || e.key === '=' || e.key === '-') {
       const start = clone(layer);
-      const c = layer.type === 'photo' ? cellCenterPx(cells()[layer.cell]) : layerCenterPx(layer);
+      const c = layer.type === 'photo' ? cellCenterPx(cellOf(layer)) : layerCenterPx(layer);
       scaleRotate(layer, start, c.x, c.y, e.key === '-' ? 1 / 1.1 : 1.1, layer.rotation);
     } else return;
     e.preventDefault();
@@ -656,7 +665,7 @@ export function createEditor(canvas, hooks = {}) {
       let removed = 0;
       const s = side();
       s.layers = s.layers.filter((l) => {
-        if (l.type !== 'photo') return true;
+        if (l.type !== 'photo' || l.cell === BG_CELL) return true;
         if (!after[l.cell]) {
           removed++;
           return false;
@@ -672,7 +681,7 @@ export function createEditor(canvas, hooks = {}) {
       // não deixa duas fotos no mesmo espaço
       const seen = new Set();
       s.layers = s.layers.filter((l) => {
-        if (l.type !== 'photo') return true;
+        if (l.type !== 'photo' || l.cell === BG_CELL) return true;
         if (seen.has(l.cell)) {
           removed++;
           return false;
@@ -698,7 +707,8 @@ export function createEditor(canvas, hooks = {}) {
         const after = cellRects(s, o);
         for (const l of s.layers) {
           if (l.type === 'photo') {
-            rescalePhoto(l, before[l.cell], after[l.cell]);
+            if (l.cell === BG_CELL) rescalePhoto(l, cellFor(s, design.orientation, BG_CELL), cellFor(s, o, BG_CELL));
+            else rescalePhoto(l, before[l.cell], after[l.cell]);
           } else {
             l.x *= nw.w / old.w;
             l.y *= nw.h / old.h;
@@ -717,13 +727,13 @@ export function createEditor(canvas, hooks = {}) {
     },
     setZoom(layer, z) {
       const start = clone(layer);
-      const c = cellCenterPx(cells()[layer.cell]);
+      const c = cellCenterPx(cellOf(layer));
       scaleRotate(layer, start, c.x, c.y, (z * baseCover(layer)) / layer.scale, layer.rotation);
       changed();
     },
     setRotation(layer, deg) {
       const start = clone(layer);
-      const c = layer.type === 'photo' ? cellCenterPx(cells()[layer.cell]) : layerCenterPx(layer);
+      const c = layer.type === 'photo' ? cellCenterPx(cellOf(layer)) : layerCenterPx(layer);
       scaleRotate(layer, start, c.x, c.y, 1, snapRotation(deg));
       changed();
     },

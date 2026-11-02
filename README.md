@@ -19,7 +19,7 @@ As ferramentas ficam em abas:
 | **Efeitos** | Filtros prontos (Vivo, Rosado, Sonho, Vintage, Preto e branco…), brilho, contraste e cor, e **contorno** em volta da foto (branco ou de outra cor), como figurinha. |
 | **Texto** | Textos com 9 letras diferentes, tamanho, cor, contorno, sombra e alinhamento. |
 | **Adesivos** | 19 desenhos (coração, laço, coroa, borboleta, fita adesiva…) que mudam de cor, e emojis. |
-| **Fundo** | Cor lisa (ou qualquer outra cor), degradês e estampas (bolinhas, corações, estrelinhas, listras, xadrez, quadriculado). |
+| **Fundo** | **Foto de fundo** atrás de tudo (escolher, colar ou arrastar; enquanto mexe nela, só o fundo se mexe), cor lisa (ou qualquer outra cor), degradês e estampas (bolinhas, corações, estrelinhas, listras, xadrez, quadriculado). |
 | **Moldura** | Borda, Polaroid, borda dupla, costurinha, bolinhas, corações, xadrez e listras, na cor que quiser. |
 | **Colagem** | De nenhuma até 4 fotos no mesmo card; cada uma se mexe dentro do seu espaço. |
 | **Modelos** | Cards prontos (Polaroid, Idol, Aniversário, Figurinha, Verso fofo…): trocam fundo, moldura, textos e adesivos, e as fotos ficam. |
@@ -36,7 +36,7 @@ Tocar numa cor apaga aquela região. A barra "Força" apaga mais ou menos cores 
 - Cards deitados saem girados na folha; depois de recortados ficam iguais.
 - Se algum card tiver verso, cada folha ganha uma página de verso logo depois, espelhada. Imprima **frente e verso virando pela borda comprida**.
   O verso sai 1 mm maior em volta, para não sobrar branco se a impressora deslocar um pouquinho.
-- Tudo fica guardado **no próprio aparelho** (o card que está sendo feito também). Cards feitos na versão anterior continuam abrindo.
+- Tudo fica guardado **no próprio aparelho** (o card que está sendo feito também). Cards feitos nas versões anteriores (inclusive com foto de fundo) continuam abrindo.
 
 ## Como usar
 

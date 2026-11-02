@@ -2,7 +2,7 @@
 // Os botões usam atributos data-* e quem trata os cliques é js/views/photocards.js.
 
 import { icon } from '../icons.js';
-import { FRAMES, LAYOUTS, cardSize } from '../card.js';
+import { FRAMES, LAYOUTS, cardSize, isBgPhoto } from '../card.js';
 import { FONTS } from '../fonts.js';
 import { FILTERS } from '../fx.js';
 import { STICKERS, EMOJIS, stickerInfo } from '../stickers.js';
@@ -242,11 +242,60 @@ function adesivosPanel(S) {
     )}`;
 }
 
+function fotoDeFundo(S) {
+  const bp = S.side.layers.find(isBgPhoto);
+  const editing = isBgPhoto(S.layer);
+  const front = S.side.layers.find((l) => l.type === 'photo' && !isBgPhoto(l));
+  const cutTip =
+    front && !front.originalKey
+      ? `<div class="pnote pnote--tip"><p>Para a foto de fundo aparecer atrás de você, tire o fundo da sua foto.</p><button type="button" class="btn btn--soft" data-act="bg-front">${icon('wand', { size: 20 })}Tirar fundo da minha foto</button></div>`
+      : '';
+  if (!bp) {
+    return section(
+      'Foto de fundo',
+      `<p class="psec__tip">Coloque uma foto atrás de tudo: fica ótimo depois de “Tirar fundo”. Também dá para ${S.isTouch ? 'colar' : 'arrastar ou colar (Ctrl+V)'} uma imagem.</p>
+       <div class="pnote__row pnote__row--start">
+         <button type="button" class="btn btn--primary" data-act="bgphoto-pick">${icon('photo', { size: 22 })}Escolher foto de fundo</button>
+         <button type="button" class="btn btn--soft" data-act="bgphoto-paste">${icon('upload', { size: 20 })}Colar</button>
+       </div>`,
+      'psec--bgphoto'
+    );
+  }
+  if (!editing) {
+    return section(
+      'Foto de fundo',
+      `<div class="tool-row">
+         <button type="button" class="tool-btn tool-btn--magic" data-act="bgphoto-edit">${icon('edit', { size: 22 })}Mexer no fundo</button>
+         <button type="button" class="tool-btn" data-act="bgphoto-pick">${icon('photo', { size: 22 })}Trocar</button>
+         <button type="button" class="tool-btn" data-act="bgphoto-remove">${icon('trash', { size: 22 })}Remover</button>
+       </div>
+       ${cutTip}`,
+      'psec--bgphoto'
+    );
+  }
+  return section(
+    'Mexendo na foto de fundo',
+    `<p class="psec__tip">Agora só o fundo se mexe: ${S.isTouch ? 'arraste e use dois dedos' : 'arraste e use a rodinha'} para enquadrar. Sua foto fica parada na frente.</p>
+     ${slider({ label: 'Tamanho', ic: 'zoom', min: 0, max: 1000, value: S.zoomSlider, attr: 'data-photo="zoom"' })}
+     ${slider({ label: 'Inclinar', ic: 'tilt', min: -180, max: 180, value: Math.round(S.layer.rotation), out: `${Math.round(S.layer.rotation)}°`, attr: 'data-photo="rot"' })}
+     <div class="tool-row">
+       <button type="button" class="tool-btn" data-act="fit">${icon('center', { size: 22 })}Encaixar</button>
+       <button type="button" class="tool-btn" data-act="bgphoto-pick">${icon('photo', { size: 22 })}Trocar</button>
+       <button type="button" class="tool-btn" data-act="bgphoto-paste">${icon('upload', { size: 22 })}Colar</button>
+       <button type="button" class="tool-btn" data-act="bgphoto-remove">${icon('trash', { size: 22 })}Remover</button>
+     </div>
+     ${cutTip}
+     <button type="button" class="btn btn--primary" data-act="bgphoto-done">${icon('check', { size: 22 })}Pronto</button>`,
+    'psec--sel'
+  );
+}
+
 function fundoPanel(S) {
   const bg = S.side.bg;
   const base = bgBaseColor(bg);
   return `
-    ${swatches('@bg', bg.kind === 'gradient' ? null : bg.color, { label: 'Cor' })}
+    ${fotoDeFundo(S)}
+    ${section('Cor', swatches('@bg', bg.kind === 'gradient' ? null : bg.color))}
     ${section(
       'Degradê',
       `<div class="chips">${GRADIENTS.map(
@@ -301,6 +350,7 @@ function modelosPanel() {
 }
 
 export function layerLabel(l, i, photos) {
+  if (isBgPhoto(l)) return { ic: 'photo', text: 'Foto de fundo' };
   if (l.type === 'photo') return { ic: 'photo', text: photos > 1 ? `Foto ${l.cell + 1}` : 'Foto' };
   if (l.type === 'text') return { ic: 'text', text: `“${(l.text || '').replace(/\s+/g, ' ').trim().slice(0, 22) || 'texto'}”` };
   if (l.kind === 'emoji') return { ic: null, emoji: l.name, text: 'Emoji' };
@@ -310,7 +360,7 @@ export function layerLabel(l, i, photos) {
 function camadasPanel(S) {
   const layers = S.side.layers;
   if (!layers.length) return emptyNote('Ainda não tem nada neste lado do card.');
-  const photos = layers.filter((l) => l.type === 'photo').length;
+  const photos = layers.filter((l) => l.type === 'photo' && !isBgPhoto(l)).length;
   const rows = layers
     .map((l, i) => ({ l, i }))
     .reverse()
