@@ -167,6 +167,7 @@ export async function mount(root) {
   let pdfUrl = null;
   let pdfFile = null;
   let draftTimer = 0;
+  let busy = false; // salvando ou trocando de card
   let textTimer = 0;
   let alive = true;
 
@@ -674,14 +675,51 @@ export async function mount(root) {
         draft = { v: 2, design: m.design, images: m.images, editingId: draft.editingId };
       }
       if (!draft.design || !draft.design.front) return;
-      await loadImages(draft.images);
-      if (!alive) return;
-      editingId = draft.editingId && cards.some((c) => c.id === draft.editingId) ? draft.editingId : null;
-      editor.load(draft.design, { side: draft.side === 'back' ? 'back' : 'front' });
-      history.reset(editor.snapshot());
-      syncChrome();
-      renderPanel(true);
+      await applyDraft(draft);
     } catch (_) {}
+  }
+
+  // Coloca no editor um rascunho guardado (ao abrir o app ou ao desfazer um "cancelar").
+  async function applyDraft(draft) {
+    cancelBg();
+    releaseAll();
+    await loadImages(draft.images);
+    if (!alive) return;
+    editingId = draft.editingId && cards.some((c) => c.id === draft.editingId) ? draft.editingId : null;
+    editor.load(draft.design, { side: draft.side === 'back' ? 'back' : 'front' });
+    history.reset(editor.snapshot());
+    syncChrome();
+    renderPanel(true);
+    renderSheet();
+    saveDraftSoon();
+  }
+
+  // Tem coisa no editor que ainda não foi para a folha?
+  function hasUnsaved() {
+    if (isEmpty(editor.design)) return false;
+    if (bg.active || !editingId) return true;
+    const old = cards.find((c) => c.id === editingId);
+    return !old || JSON.stringify(old.design) !== editor.snapshot();
+  }
+
+  // "Começar outro card" / "Cancelar edição": dá para desfazer, caso tenha sido sem querer.
+  function startNew() {
+    cancelBg();
+    const lost = hasUnsaved() ? draftData() : null;
+    resetEditor();
+    renderSheet();
+    if (!lost) return;
+    toast(lost.editingId ? 'Edição cancelada.' : 'Card descartado.', {
+      action: 'Desfazer',
+      duration: 8000,
+      onAction: () => {
+        if (busy || editingId || !isEmpty(editor.design)) {
+          toast('Você já começou outro card. Coloque ele na folha e tente de novo.', { kind: 'error' });
+          return;
+        }
+        applyDraft(lost).catch(() => toast('Não consegui trazer o card de volta.', { kind: 'error' }));
+      },
+    });
   }
 
   function resetEditor() {
@@ -991,29 +1029,36 @@ export async function mount(root) {
     $('[data-duplex-tip]').hidden = !cards.some(hasBack);
   }
 
+  // Grava o card do editor na folha: novo, ou por cima do card que está sendo editado.
+  async function storeCurrent() {
+    if (bg.active) await finishBg();
+    const design = clone(editor.design);
+    await ensureFonts(design);
+    const thumbBlob = await canvasToBlob(renderThumb(design, 'front', getImg), 'image/png');
+    const old = editingId && cards.find((c) => c.id === editingId);
+    const record = {
+      v: 2,
+      id: old ? old.id : newId(),
+      createdAt: old ? old.createdAt : Date.now(),
+      copies: old ? old.copies : 1,
+      design,
+      images: blobsFor(design),
+      thumbBlob,
+    };
+    await db.putCard(record);
+    await loadCards();
+    return record;
+  }
+
   async function saveCard() {
-    if (isEmpty(editor.design)) return;
+    if (isEmpty(editor.design) || busy) return;
     const btn = $('[data-act="save"]');
     btn.disabled = true;
+    busy = true;
     try {
-      if (bg.active) await finishBg();
-      const design = clone(editor.design);
-      await ensureFonts(design);
-      const thumbBlob = await canvasToBlob(renderThumb(design, 'front', getImg), 'image/png');
       const fromRect = editor.cardScreenRect();
       const wasEditing = editingId;
-      const old = editingId && cards.find((c) => c.id === editingId);
-      const record = {
-        v: 2,
-        id: old ? old.id : newId(),
-        createdAt: old ? old.createdAt : Date.now(),
-        copies: old ? old.copies : 1,
-        design,
-        images: blobsFor(design),
-        thumbBlob,
-      };
-      await db.putCard(record);
-      await loadCards();
+      const record = await storeCurrent();
       resetEditor();
       renderSheet();
       flyToSheet(record.id, fromRect);
@@ -1025,6 +1070,7 @@ export async function mount(root) {
       console.error(err);
       toast('Não consegui salvar o card. Tente de novo.', { kind: 'error' });
     } finally {
+      busy = false;
       syncChrome();
     }
   }
@@ -1061,9 +1107,28 @@ export async function mount(root) {
   }
 
   async function editCard(id) {
-    const card = cards.find((c) => c.id === id);
-    if (!card) return;
+    if (busy) return;
+    if (!cards.some((c) => c.id === id)) return;
+    if (id === editingId) {
+      if (window.innerWidth < 1000) stage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    busy = true;
     try {
+      // Antes de abrir outro card, guarda o que estava sendo feito (para não perder nada).
+      if (hasUnsaved()) {
+        const wasEditing = editingId;
+        try {
+          await storeCurrent();
+        } catch (err) {
+          console.error(err);
+          toast('Não consegui salvar o card que estava aberto, então ele continua aqui.', { kind: 'error' });
+          return;
+        }
+        toast(wasEditing ? 'Salvei as mudanças do card anterior.' : 'O card que você estava fazendo foi para a folha.');
+      }
+      const card = cards.find((c) => c.id === id);
+      if (!card) return;
       cancelBg();
       releaseAll();
       await loadImages(card.images);
@@ -1078,6 +1143,8 @@ export async function mount(root) {
       if (window.innerWidth < 1000) stage.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (_) {
       toast('Não consegui abrir esse card.', { kind: 'error' });
+    } finally {
+      busy = false;
     }
   }
 
@@ -1247,8 +1314,7 @@ export async function mount(root) {
         case 'save':
           return saveCard();
         case 'new':
-          resetEditor();
-          return renderSheet();
+          return startNew();
         case 'print':
           return preparePdf();
         case 'share':

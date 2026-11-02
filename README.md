@@ -36,7 +36,9 @@ Tocar numa cor apaga aquela região. A barra "Força" apaga mais ou menos cores 
 - Cards deitados saem girados na folha; depois de recortados ficam iguais.
 - Se algum card tiver verso, cada folha ganha uma página de verso logo depois, espelhada. Imprima **frente e verso virando pela borda comprida**.
   O verso sai 1 mm maior em volta, para não sobrar branco se a impressora deslocar um pouquinho.
-- Tudo fica guardado **no próprio aparelho** (o card que está sendo feito também). Cards feitos nas versões anteriores (inclusive com foto de fundo) continuam abrindo.
+- Tudo fica guardado **no próprio aparelho** (o card que está sendo feito também).
+  Ao tocar em outro card da folha, o card aberto é **salvo sozinho** antes de trocar (se for novo, vai para a folha).
+  "Começar outro card" e "Cancelar edição" mostram um aviso com **Desfazer**, caso tenha sido sem querer. Cards feitos nas versões anteriores (inclusive com foto de fundo) continuam abrindo.
 
 ## Como usar
 
