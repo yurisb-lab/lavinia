@@ -1,6 +1,6 @@
 // Guarda o aplicativo no aparelho para abrir mesmo sem internet.
 // Ao mudar qualquer arquivo do app, aumente VERSION para os aparelhos baixarem a versão nova.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `lavinia-${VERSION}`;
 const APP_FILES = [
   './',
@@ -11,6 +11,8 @@ const APP_FILES = [
   'js/bg-remover.js',
   'js/bg-worker.js',
   'js/card.js',
+  'js/cloud.js',
+  'js/cloud-config.js',
   'js/db.js',
   'js/editor.js',
   'js/fonts.js',
