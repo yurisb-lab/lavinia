@@ -2,10 +2,12 @@
 
 import { createEditor } from '../editor.js';
 import {
-  CARD,
   BG_CELL,
+  FORMATS,
+  formatInfo,
   cardSize,
   cellFor,
+  cellRects,
   isBgPhoto,
   coverScale,
   imageKeys,
@@ -14,22 +16,29 @@ import {
   newPhotoLayer,
   newStickerLayer,
   newTextLayer,
+  newDrawLayer,
+  finishDrawLayer,
+  sideHasContent,
   uid,
 } from '../card.js';
 import { renderThumb, GRADIENTS, bgBaseColor } from '../render.js';
 import { processPhoto } from '../fx.js';
 import { stickerPreview, stickerInfo } from '../stickers.js';
 import { loadFonts, ensureFonts } from '../fonts.js';
-import { makeTemplate } from '../templates.js';
+import { makeTemplate, templateInfo } from '../templates.js';
 import { createHistory } from '../history.js';
 import { db, newId } from '../db.js';
 import { importImageFile, blobToImage, releaseImage, canvasToBlob } from '../image.js';
-import { buildPdf, paginate, slotPositions, SHEET, PER_PAGE, hasBack } from '../pdf.js';
+import { buildPdf, buildSheetImages, layoutSheet, SHEET, hasBack, isSticker, stickerDims } from '../pdf.js';
 import { icon } from '../icons.js';
 import { createBgRemover } from '../bg-remover.js';
 import { toast } from '../toast.js';
 import { cloudEnabled, queueCard, syncCloud, onCloudChange, listCloud, fetchCloudCard, daysText, KEEP_DAYS } from '../cloud.js';
-import { TABS, panelHtml, layerLabel } from './pc-panels.js';
+import { TABS, PEN_SIZES, panelHtml, layerLabel } from './pc-panels.js';
+import { saveSticker, listStickers, onStickersChange, stickerUrls, revokeUrls, trimTransparent, hasTransparency } from '../library.js';
+import { designFiles, shareOrDownload } from '../export.js';
+import { onSheet, duplicateRecord, plain, putRecord, thumbBlobFor } from '../records.js';
+import { openModal } from '../modal.js';
 
 export const title = 'Photo cards';
 
@@ -46,27 +55,35 @@ const sliderToZoom = (v) => ZMIN * Math.pow(ZMAX / ZMIN, v / 1000);
 // Cor que cada moldura ganha quando é escolhida.
 const FRAME_COLOR = { solid: '#ffffff', polaroid: '#ffffff', double: '#ffffff', stitch: '#ff9cc2', dots: '#ff9cc2', hearts: '#ff9cc2', checker: '#ff9cc2', stripes: '#b79cff' };
 
-const sizeText = (o) => {
-  const { w, h } = cardSize(o);
+const sizeText = (d) => {
+  const { w, h } = cardSize(d);
   return `${fmt(w / 10)} × ${fmt(h / 10)} cm`;
 };
+const pad2 = (n) => String(n).padStart(2, '0');
 
 function template() {
   return `
   <section class="pc">
     <div class="pc__editor">
       <div class="pc__head">
-        <h1 class="pc__title">Photo card <span class="chip" data-editing hidden>${icon('edit', { size: 16 })} Editando um card da folha</span></h1>
-        <div class="seg" role="group" aria-label="Posição do card">
+        <h1 class="pc__title"><span data-format-title>Photo card</span> <span class="chip" data-editing hidden>${icon('edit', { size: 16 })} Editando um card guardado</span></h1>
+        <div class="seg" role="group" aria-label="Posição" data-orient-seg>
           <button type="button" class="seg__btn" data-orient="portrait" aria-pressed="true">${icon('portrait', { size: 20 })}Em pé</button>
           <button type="button" class="seg__btn" data-orient="landscape" aria-pressed="false">${icon('landscape', { size: 20 })}Deitado</button>
         </div>
       </div>
 
+      <div class="formats" role="group" aria-label="O que você quer fazer">
+        ${FORMATS.map(
+          (f) => `<button type="button" class="format-btn" data-format="${f.id}" aria-pressed="${f.id === 'card'}" title="${f.name}">
+            <span class="format-btn__shape" style="width:${Math.round((f.w / f.h) * 34)}px"></span><span>${f.short}</span></button>`
+        ).join('')}
+      </div>
+
       <div class="stagebar">
         <div class="seg seg--sides" role="group" aria-label="Lado do card">
-          <button type="button" class="seg__btn" data-side="front" aria-pressed="true">${icon('card', { size: 20 })}Frente</button>
-          <button type="button" class="seg__btn" data-side="back" aria-pressed="false">${icon('flipCard', { size: 20 })}Verso<span class="dot" data-back-dot hidden></span></button>
+          <button type="button" class="seg__btn" data-side="front" aria-pressed="true">${icon('card', { size: 20 })}<span data-side-label>Frente</span></button>
+          <button type="button" class="seg__btn" data-side="back" aria-pressed="false">${icon('flipCard', { size: 20 })}<span data-side-label>Verso</span><span class="dot" data-back-dot hidden></span></button>
         </div>
         <div class="stagebar__hist">
           <button type="button" class="hist-btn" data-act="undo" title="Desfazer (Ctrl+Z)">${icon('undo', { size: 20 })}<span>Desfazer</span></button>
@@ -86,7 +103,7 @@ function template() {
         </div>
         <div class="stage__drop" aria-hidden="true"><span>${icon('heart', { size: 28, fill: true })} Solte a imagem aqui</span></div>
         <span class="stage__size" data-size>${sizeText('portrait')}</span>
-        <span class="stage__cut" aria-hidden="true"><i></i>linha de corte</span>
+        <span class="stage__cut" aria-hidden="true"><i></i><span data-cut-label>linha de corte</span></span>
         <span class="stage__badge" data-bg-badge hidden>${icon('photo', { size: 18 })}Mexendo no fundo</span>
         <span class="stage__busy" data-busy hidden>${icon('wand', { size: 18 })}Apagando o fundo…</span>
       </div>
@@ -115,6 +132,11 @@ function template() {
         <button type="button" class="btn btn--primary" data-act="save">${icon('sparkle', { size: 22, fill: true })}<span data-save-label>Colocar na folha</span></button>
         <button type="button" class="btn btn--soft" data-act="new"><span data-new-label>Começar outro card</span></button>
       </div>
+      <div class="actions actions--more">
+        <button type="button" class="btn btn--soft btn--sm" data-act="save-image">${icon('download', { size: 20 })}<span data-save-image-label>Salvar imagem</span></button>
+        <button type="button" class="btn btn--soft btn--sm" data-act="series">${icon('stack', { size: 20 })}Fazer série</button>
+        <a class="btn btn--soft btn--sm" href="#/fichario">${icon('book', { size: 20 })}Meu fichário</a>
+      </div>
     </div>
 
     <aside class="pc__sheet" aria-labelledby="sheet-title" data-sheet>
@@ -124,6 +146,7 @@ function template() {
       </div>
       <div class="pages" data-pages></div>
       <ul class="card-list" data-list></ul>
+      <a class="btn btn--soft btn--wide" href="#/adesivos">${icon('sticker', { size: 20 })}Pôr meus adesivos na folha</a>
 
       <details class="cloud" data-cloud${cloudEnabled ? '' : ' hidden'}>
         <summary class="cloud__head">
@@ -141,15 +164,17 @@ function template() {
           Pontilhado de corte em volta de cada card
         </label>
         <button type="button" class="btn btn--primary btn--wide" data-act="print">${icon('printer', { size: 22 })}<span data-print-label>Preparar folha para imprimir</span></button>
+        <button type="button" class="btn btn--soft btn--wide" data-act="print-jpg">${icon('photo', { size: 22 })}<span data-jpg-label>Salvar folha como imagem (JPG)</span></button>
         <div class="ready" data-ready hidden>
           <p class="ready__title">${icon('heart', { size: 18, fill: true })} Sua folha está pronta!</p>
           <div class="ready__links">
             <a class="btn btn--primary" data-open target="_blank" rel="noopener">${icon('printer', { size: 20 })}Abrir e imprimir</a>
-            <a class="btn btn--soft" data-download download="photo-cards-lavinia.pdf">${icon('download', { size: 20 })}Salvar PDF</a>
+            <a class="btn btn--soft" data-download download="folha-lavinia.pdf">${icon('download', { size: 20 })}Salvar PDF</a>
             <button type="button" class="btn btn--soft" data-act="share" hidden>${icon('upload', { size: 20 })}Compartilhar</button>
           </div>
         </div>
-        <p class="print-tip">Na hora de imprimir, escolha <strong>tamanho real</strong> ou <strong>escala 100%</strong> (não use “ajustar à página”). No rodapé da folha tem uma régua de 5 cm para conferir. Recorte seguindo o pontilhado.</p>
+        <p class="print-tip">Na hora de imprimir, escolha <strong>tamanho real</strong> ou <strong>escala 100%</strong> (não use “ajustar à página”). No rodapé da folha tem uma régua de 5 cm para conferir. Recorte seguindo o pontilhado. Se for imprimir a imagem JPG, escolha também tamanho real (A4, sem margem extra). Adesivos: imprima em <strong>papel adesivo</strong> e recorte pela linha cinza.</p>
+        <p class="print-tip" data-folded-tip hidden>${icon('book', { size: 18 })} Cartão dobrável: recorte o retângulo inteiro e dobre ao meio pelas marquinhas de cima e de baixo.</p>
         <p class="print-tip" data-duplex-tip hidden>${icon('flipCard', { size: 18 })} Tem card com verso: imprima <strong>frente e verso</strong>, virando pela <strong>borda comprida</strong>. Sem essa opção, imprima a folha da frente, coloque o papel de volta na impressora com o lado branco para imprimir e mande só a página do verso.</p>
       </div>
     </aside>
@@ -180,6 +205,10 @@ export async function mount(root) {
   let busy = false; // salvando ou trocando de card
   let textTimer = 0;
   let alive = true;
+  let pickLoose = false; // a próxima foto escolhida vira foto solta
+  let stickerPack = 'fofos';
+  let library = []; // meus adesivos (com url para os botões)
+  const draw = { active: false, pen: 'pen', color: '#c92f6c', size: 'm', layerId: null };
 
   const getImg = (key) => (key === BG_TEMP ? bg.result : (images.get(key) || {}).img || null);
 
@@ -234,6 +263,15 @@ export async function mount(root) {
     const L = selected();
     const sideName = editor.getSideName();
     const lock = bg.active;
+    const f = formatInfo(d.format);
+    $('[data-format-title]').textContent = f.name;
+    $$('[data-format]').forEach((b) => {
+      b.setAttribute('aria-pressed', String(b.dataset.format === f.id));
+      b.disabled = lock;
+    });
+    $('[data-orient-seg]').hidden = !f.rotate;
+    $$('[data-side-label]').forEach((el, i) => (el.textContent = f.sides[i]));
+    $('[data-cut-label]').textContent = f.id === 'poster' ? 'beirada da folha' : f.id === 'folded' ? 'linha de corte (só a capa)' : 'linha de corte';
     $$('[data-orient]').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.orient === d.orientation));
       b.disabled = lock;
@@ -242,17 +280,19 @@ export async function mount(root) {
       b.setAttribute('aria-pressed', String(b.dataset.side === sideName));
       b.disabled = lock;
     });
-    $('[data-back-dot]').hidden = !(d.back.layers.length || d.back.bg.kind !== 'solid' || d.back.bg.color !== '#ffffff' || d.back.frame.id !== 'none');
+    $('[data-back-dot]').hidden = !sideHasContent(d.back);
     $('[data-act="undo"]').disabled = lock || !history.canUndo();
     $('[data-act="redo"]').disabled = lock || !history.canRedo();
-    $('[data-size]').textContent = sizeText(d.orientation);
+    $('[data-size]').textContent = sizeText(d);
     $('[data-busy]').hidden = !bg.running;
     $('[data-editing]').hidden = !editingId;
-    $('[data-save-label]').textContent = editingId ? 'Salvar card' : 'Colocar na folha';
-    $('[data-new-label]').textContent = editingId ? 'Cancelar edição' : 'Começar outro card';
+    $('[data-save-label]').textContent = editingId ? 'Salvar' : 'Colocar na folha';
+    $('[data-new-label]').textContent = editingId ? 'Cancelar edição' : f.id === 'card' ? 'Começar outro card' : 'Começar de novo';
     $('[data-act="save"]').disabled = isEmpty(d);
     $('[data-act="new"]').disabled = lock;
-    $('[data-empty]').hidden = lock || sideName !== 'front' || s.layers.length > 0 || !editor.cells().length;
+    $('[data-act="save-image"]').disabled = lock || isEmpty(d);
+    $('[data-act="series"]').disabled = lock;
+    $('[data-empty]').hidden = lock || draw.active || sideName !== 'front' || s.layers.length > 0 || !editor.cells().length;
     $('[data-bg-badge]').hidden = lock || !isBgPhoto(L);
     $$('[data-tab]').forEach((b) => {
       b.disabled = lock;
@@ -274,10 +314,12 @@ export async function mount(root) {
       $('[data-act="layer-down"]').disabled = i <= 0;
       $('[data-act="dup"]').disabled = L.type === 'photo';
     }
+    bar.hidden = bar.hidden || draw.active;
 
     const tapWord = isTouch ? 'Toque' : 'Clique';
     let hint = '';
-    if (!lock) {
+    if (draw.active) hint = `Desenhe em cima ${f.id === 'poster' ? 'do pôster' : 'do card'}. Toque em “Pronto” quando terminar.`;
+    else if (!lock) {
       if (!L) hint = s.layers.length ? `${tapWord} em alguma coisa do card para mexer nela.` : '';
       else if (isBgPhoto(L))
         hint = `Mexendo no fundo: ${isTouch ? 'arraste e use dois dedos' : 'arraste e use a rodinha'} para enquadrar. Toque em “Pronto” quando terminar.`;
@@ -328,6 +370,7 @@ export async function mount(root) {
       if (isBgPhoto(L)) tab = tab === 'camadas' || tab === 'efeitos' ? tab : 'fundo';
       else if (L.type === 'text' && tab !== 'camadas') tab = 'texto';
       else if (L.type === 'sticker' && tab !== 'camadas') tab = 'adesivos';
+      else if (L.type === 'draw' && tab !== 'camadas') tab = 'desenho';
       else if (L.type === 'photo' && !['foto', 'efeitos', 'camadas'].includes(tab)) tab = 'foto';
     } else if (sel && sel.cell != null && !['colagem', 'moldura', 'camadas'].includes(tab)) tab = 'foto';
     syncChrome();
@@ -346,6 +389,11 @@ export async function mount(root) {
       bg: { tolerance: bg.tolerance, ops: bg.ops.length, hasAuto: bg.ops.some((o) => o.kind === 'edges'), running: bg.running },
       isTouch,
       zoomSlider: L && L.type === 'photo' ? zoomToSlider(editor.getZoom(L)) : 0,
+      unit: editor.unit(),
+      pack: stickerPack,
+      library,
+      draw: { ...draw },
+      canUndo: history.canUndo(),
     };
   }
 
@@ -420,14 +468,14 @@ export async function mount(root) {
     panel.querySelectorAll('[data-frame-preview]').forEach((el) => {
       const id = el.dataset.framePreview;
       const s = side();
-      const mini = { orientation: d.orientation, front: { bg: s.bg, frame: { id, color: frameColorFor(id) }, layout: s.layout === '0' ? '1' : s.layout, layers: [] } };
+      const mini = { format: d.format, orientation: d.orientation, front: { bg: s.bg, frame: { id, color: frameColorFor(id) }, layout: s.layout === '0' ? '1' : s.layout, layers: [] } };
       mini.back = mini.front;
       put(el, renderThumb(mini, 'front', getImg, 110, { placeholders: 'sample' }));
     });
 
     panel.querySelectorAll('[data-template-preview]').forEach((el) => {
-      const s = makeTemplate(el.dataset.templatePreview, d.orientation);
-      const mini = { orientation: d.orientation, front: s, back: s };
+      const s = makeTemplate(el.dataset.templatePreview, d);
+      const mini = { format: d.format, orientation: d.orientation, front: s, back: s };
       put(el, renderThumb(mini, 'front', getImg, 150, { placeholders: 'sample' }));
     });
   }
@@ -514,7 +562,7 @@ export async function mount(root) {
       cancelBg();
       const key = newId();
       images.set(key, { blob, img });
-      const rect = cellFor(side(), editor.design.orientation, BG_CELL);
+      const rect = cellFor(side(), editor.design, BG_CELL);
       let id = null;
       editor.change((d, s) => {
         const old = s.layers.find(isBgPhoto);
@@ -538,19 +586,138 @@ export async function mount(root) {
   // Para onde vai uma imagem colada ou arrastada.
   const placeAny = (file) => (isBgPhoto(selected()) ? placeBgPhoto(file) : placePhoto(file));
 
-  function pickPhoto(cell = null, toBg = false) {
+  function pickPhoto(cell = null, toBg = false, loose = false) {
     pickCell = cell;
     pickBg = toBg;
+    pickLoose = loose;
     fileInput.click();
   }
 
   fileInput.addEventListener('change', () => {
     const f = fileInput.files && fileInput.files[0];
-    if (f) pickBg ? placeBgPhoto(f) : placePhoto(f, pickCell);
+    if (f) pickLoose ? addLoosePhoto(f) : pickBg ? placeBgPhoto(f) : placePhoto(f, pickCell);
     pickCell = null;
     pickBg = false;
+    pickLoose = false;
     fileInput.value = '';
   });
+
+  // Foto solta: a foto inteira por cima de tudo, com borda de polaroid (ótima para mural e pôster).
+  async function addLoosePhoto(file) {
+    try {
+      const { blob, img } = await importImageFile(file);
+      if (!alive) return;
+      const key = newId();
+      images.set(key, { blob, img });
+      addSticker({
+        kind: 'image',
+        name: 'image',
+        imageKey: key,
+        iw: img.naturalWidth,
+        ih: img.naturalHeight,
+        frame: 'polaroid',
+        shadow: true,
+        color: null,
+        size: 30 * editor.unit(),
+      });
+      setTab('adesivos');
+    } catch (err) {
+      toast(err.message || 'Não consegui abrir essa imagem.', { kind: 'error' });
+    }
+  }
+
+  // Um dos meus adesivos.
+  async function addMine(id) {
+    const st = library.find((x) => x.id === id);
+    if (!st) return;
+    const key = `stk_${id}`;
+    try {
+      if (!images.has(key)) images.set(key, { blob: st.blob, img: await blobToImage(st.blob) });
+    } catch (_) {
+      return toast('Não consegui abrir esse adesivo.', { kind: 'error' });
+    }
+    addSticker({ kind: 'image', name: 'image', imageKey: key, iw: st.w, ih: st.h, frame: 'none', shadow: false, color: null, size: 22 * editor.unit() });
+  }
+
+  function addCalendar() {
+    const { w, h } = cardSize(editor.design);
+    const now = new Date();
+    addSticker({ kind: 'calendar', name: 'calendar', color: '#ff5c93', month: now.getMonth(), year: now.getFullYear(), size: Math.min(w * 0.8, (h * 0.8) / 1.08), rotation: 0, x: 0, y: 0 });
+  }
+
+  // A foto escolhida do jeito que aparece (efeitos, contorno, espelhada), sem cortar nada.
+  function photoCutout(L) {
+    const img = getImg(L.imageKey);
+    if (!img) return null;
+    const res = processPhoto(img, L.fx, L.outline);
+    const src = res.canvas;
+    const c = document.createElement('canvas');
+    c.width = src.naturalWidth || src.width;
+    c.height = src.naturalHeight || src.height;
+    const ctx = c.getContext('2d');
+    if (L.flip) {
+      ctx.translate(c.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(src, 0, 0);
+    return c;
+  }
+
+  async function toSticker() {
+    const L = selected();
+    if (!L || L.type !== 'photo') return;
+    const c = photoCutout(L);
+    if (!c) return;
+    try {
+      const transparent = hasTransparency(c);
+      await saveSticker(c);
+      toast(transparent ? 'Virou adesivo! Ele está em Adesivos › Meus.' : 'Virou adesivo (quadrado). Para ficar só a pessoa, use “Tirar fundo” antes.', {
+        action: 'Ver',
+        duration: 6000,
+        onAction: () => {
+          stickerPack = 'meus';
+          editor.select(null);
+          setTab('adesivos');
+        },
+      });
+    } catch (err) {
+      toast(err.message || 'Não consegui guardar o adesivo.', { kind: 'error' });
+    }
+  }
+
+  async function saveCutout() {
+    const L = selected();
+    if (!L || L.type !== 'photo') return;
+    const c = photoCutout(L);
+    if (!c) return;
+    const out = trimTransparent(c) || c;
+    const blob = await canvasToBlob(out, 'image/png');
+    const r = await shareOrDownload([new File([blob], L.originalKey ? 'lavinia-sem-fundo.png' : 'lavinia-foto.png', { type: 'image/png' })]);
+    if (r === 'downloaded') toast('Foto salva!');
+  }
+
+  async function saveImage() {
+    if (draw.active) finishDraw();
+    if (bg.active) await finishBg();
+    if (isEmpty(editor.design)) return;
+    const btn = $('[data-act="save-image"]');
+    const label = $('[data-save-image-label]');
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    label.textContent = 'Preparando…';
+    try {
+      const files = await designFiles(clone(editor.design), getImg);
+      const r = await shareOrDownload(files, 'Da Lavínia');
+      if (r === 'downloaded') toast(files.length > 1 ? 'Imagens salvas (frente e verso)!' : 'Imagem salva!');
+    } catch (err) {
+      console.error(err);
+      toast('Não consegui salvar a imagem. Tente de novo.', { kind: 'error' });
+    } finally {
+      btn.classList.remove('is-busy');
+      label.textContent = 'Salvar imagem';
+      syncChrome();
+    }
+  }
 
   async function pasteFromClipboard(toBg = false) {
     if (!navigator.clipboard || !navigator.clipboard.read) {
@@ -630,7 +797,8 @@ export async function mount(root) {
     if (bg.active) return;
     const s = history.undo();
     if (!s) return;
-    editor.restore(JSON.parse(s));
+    editor.restore(fixDraws(JSON.parse(s)));
+    ensureDrawLayer();
     afterChange();
   }
 
@@ -638,8 +806,66 @@ export async function mount(root) {
     if (bg.active) return;
     const s = history.redo();
     if (!s) return;
-    editor.restore(JSON.parse(s));
+    editor.restore(fixDraws(JSON.parse(s)));
+    ensureDrawLayer();
     afterChange();
+  }
+
+  // ---------- desenhar ----------
+  const penWidth = () => (PEN_SIZES.find((p) => p.id === draw.size) || PEN_SIZES[1]).mm * editor.unit();
+
+  function startDraw() {
+    if (bg.active) return;
+    if (draw.active) finishDraw();
+    const L = newDrawLayer();
+    editor.change((d, s) => s.layers.push(L));
+    draw.active = true;
+    draw.layerId = L.id;
+    editor.setDrawMode({ layerId: L.id, c: draw.color, w: penWidth(), pen: draw.pen });
+    tab = 'desenho';
+    syncChrome();
+    renderPanel(true);
+  }
+
+  // Depois de desfazer, o desenho em andamento pode ter sumido: começa outro.
+  function ensureDrawLayer() {
+    if (!draw.active || editor.layerById(draw.layerId)) return;
+    const L = newDrawLayer();
+    editor.change((d, s) => s.layers.push(L));
+    draw.layerId = L.id;
+    editor.setPen({ layerId: L.id });
+  }
+
+  // Desenhos que voltaram pelo desfazer sem estar "acabados" ganham caixa e centro.
+  function fixDraws(d) {
+    for (const s of [d.front, d.back]) {
+      s.layers = s.layers.filter((l) => {
+        if (l.type !== 'draw' || (draw.active && l.id === draw.layerId) || l.bw) return true;
+        return finishDrawLayer(l);
+      });
+    }
+    return d;
+  }
+
+  function finishDraw() {
+    if (!draw.active) return;
+    draw.active = false;
+    editor.setDrawMode(null);
+    let id = null;
+    const lid = draw.layerId;
+    draw.layerId = null;
+    editor.change(
+      (d, s) => {
+        const l = s.layers.find((x) => x.id === lid);
+        if (!l) return;
+        if (finishDrawLayer(l)) id = l.id;
+        else s.layers = s.layers.filter((x) => x !== l);
+      },
+      { commit: true }
+    );
+    if (id) editor.select(id);
+    syncChrome();
+    renderPanel(true);
   }
 
   function onKey(e) {
@@ -715,6 +941,7 @@ export async function mount(root) {
   // "Começar outro card" / "Cancelar edição": dá para desfazer, caso tenha sido sem querer.
   function startNew() {
     cancelBg();
+    if (draw.active) finishDraw();
     const lost = hasUnsaved() ? draftData() : null;
     resetEditor();
     renderSheet();
@@ -732,12 +959,13 @@ export async function mount(root) {
     });
   }
 
-  function resetEditor() {
+  function resetEditor(format = editor.design.format) {
     cancelBg();
+    if (draw.active) finishDraw();
     const o = editor.design.orientation;
     releaseAll();
     editingId = null;
-    editor.load(newDesign(o));
+    editor.load(newDesign(o, format));
     history.reset(editor.snapshot());
     db.deleteMeta('draft').catch(() => {});
     tab = 'foto';
@@ -875,7 +1103,17 @@ export async function mount(root) {
   }
 
   function setColor(prop, color, commit) {
-    if (prop === '@bg') {
+    if (prop === '@pen') {
+      draw.color = color;
+      editor.setPen({ c: color });
+      if (commit) renderPanel(true);
+      return;
+    }
+    if (prop === '@draw') {
+      const L = selected();
+      if (!L || L.type !== 'draw') return;
+      editor.change(() => L.strokes.forEach((st) => (st.c = color)), { commit });
+    } else if (prop === '@bg') {
       editor.change((d, s) => {
         s.bg = s.bg.kind === 'pattern' ? { ...s.bg, color } : { kind: 'solid', color };
       }, { commit });
@@ -894,11 +1132,12 @@ export async function mount(root) {
   }
 
   function addText() {
-    const { h } = cardSize(editor.design.orientation);
+    const { h } = cardSize(editor.design);
+    const u = editor.unit();
     const s = side();
     const texts = s.layers.filter((l) => l.type === 'text').length;
     const hasPhoto = s.layers.some((l) => l.type === 'photo');
-    const L = newTextLayer({ y: (hasPhoto ? h * 0.3 : 0) - (texts % 3) * 9 });
+    const L = newTextLayer({ size: 7 * u, y: (hasPhoto ? h * 0.3 : 0) - (texts % 3) * 9 * u });
     editor.change((d, sd) => sd.layers.push(L), { commit: true });
     editor.select(L.id);
     setTab('texto');
@@ -906,7 +1145,8 @@ export async function mount(root) {
   }
 
   function addSticker(props) {
-    const L = newStickerLayer({ ...props, x: (Math.random() - 0.5) * 16, y: (Math.random() - 0.5) * 16, rotation: Math.round((Math.random() - 0.5) * 24) });
+    const u = editor.unit();
+    const L = newStickerLayer({ size: 14 * u, x: (Math.random() - 0.5) * 16 * u, y: (Math.random() - 0.5) * 16 * u, rotation: Math.round((Math.random() - 0.5) * 24), ...props });
     editor.change((d, s) => s.layers.push(L), { commit: true });
     editor.select(L.id);
   }
@@ -923,7 +1163,8 @@ export async function mount(root) {
   function duplicate() {
     const L = selected();
     if (!L || L.type === 'photo') return;
-    const copy = { ...clone(L), id: uid(), x: L.x + 4, y: L.y + 4 };
+    const u = editor.unit();
+    const copy = { ...clone(L), id: uid(), x: L.x + 4 * u, y: L.y + 4 * u };
     editor.change((d, s) => s.layers.splice(s.layers.indexOf(L) + 1, 0, copy), { commit: true });
     editor.select(copy.id);
   }
@@ -932,14 +1173,23 @@ export async function mount(root) {
     const s = side();
     const L = s.layers.find((l) => l.id === id);
     if (!L) return;
-    const what = isBgPhoto(L) ? 'Foto de fundo tirada.' : L.type === 'photo' ? 'Foto tirada do card.' : L.type === 'text' ? 'Texto apagado.' : 'Adesivo apagado.';
+    const what = isBgPhoto(L)
+      ? 'Foto de fundo tirada.'
+      : L.type === 'photo'
+        ? 'Foto tirada do card.'
+        : L.type === 'text'
+          ? 'Texto apagado.'
+          : L.type === 'draw'
+            ? 'Desenho apagado.'
+            : 'Adesivo apagado.';
     editor.change((d, sd) => (sd.layers = sd.layers.filter((l) => l.id !== id)), { commit: true });
     editor.select(null);
     toast(what, { action: 'Desfazer', duration: 6000, onAction: undo });
   }
 
   function applyTemplate(id) {
-    const t = makeTemplate(id, editor.design.orientation);
+    const t = makeTemplate(id, editor.design);
+    const hint = templateInfo(id).hint;
     const removed = editor.restructure(
       (s) => {
         const photos = s.layers.filter((l) => l.type === 'photo').sort((a, b) => a.cell - b.cell);
@@ -952,7 +1202,22 @@ export async function mount(root) {
       { refit: true }
     );
     editor.select(null);
-    toast(removed ? 'Modelo aplicado. Algumas fotos não couberam: dá para desfazer.' : 'Modelo aplicado!', removed ? { action: 'Desfazer', onAction: undo } : {});
+    if (removed) toast('Modelo aplicado. Algumas fotos não couberam: dá para desfazer.', { action: 'Desfazer', onAction: undo });
+    else toast(hint ? `Modelo aplicado! ${hint}` : 'Modelo aplicado!', { duration: hint ? 7000 : 3800 });
+  }
+
+  function setFormat(id) {
+    if (draw.active) finishDraw();
+    cancelBg();
+    const d = editor.design;
+    if (isEmpty(d) && !sideHasContent(d.front) && !sideHasContent(d.back)) {
+      // ainda não tem nada: começa com o jeito padrão do formato (ex.: mini já vem com moldura polaroid)
+      editor.load(newDesign(d.orientation, id));
+      editor.commitNow();
+    } else editor.setFormat(id);
+    editor.select(null);
+    syncChrome();
+    renderPanel(true);
   }
 
   function setLayout(id) {
@@ -965,62 +1230,117 @@ export async function mount(root) {
   }
 
   // ---------- folha ----------
+  // cards = tudo o que está guardado no aparelho (cards de todos os formatos e adesivos para imprimir).
+  // Só vai para a folha o que está "na folha" (os outros ficam no fichário).
   async function loadCards() {
     const list = (await db.allCards()).map(migrateRecord);
     cards.forEach((c) => c.thumbUrl && URL.revokeObjectURL(c.thumbUrl));
-    cards = list.map((c) => ({ ...c, thumbUrl: URL.createObjectURL(c.thumbBlob) }));
+    cards = list.map((c) => ({ ...c, thumbUrl: c.thumbBlob ? URL.createObjectURL(c.thumbBlob) : '' }));
   }
 
-  const recordOf = (card) => {
-    const { thumbUrl, ...rec } = card;
-    return rec;
-  };
+  const sheetRecords = () => cards.filter(onSheet);
+  const recordOf = plain;
 
+  // Miniatura do jeito que sai na folha: card deitado aparece girado; cartão dobrável mostra a capa à direita.
   function thumbImg(card) {
-    const land = card.design.orientation === 'landscape';
-    const style = land ? ` style="width:${((CARD.long / CARD.short) * 100).toFixed(2)}%;height:${((CARD.short / CARD.long) * 100).toFixed(2)}%"` : '';
+    if (isSticker(card)) return `<img class="is-sticker" src="${card.thumbUrl}" alt="" draggable="false">`;
+    const d = card.design;
+    const f = formatInfo(d.format);
+    if (f.id === 'folded') return `<img class="is-half" src="${card.thumbUrl}" alt="" draggable="false">`;
+    const land = f.rotate && d.orientation === 'landscape';
+    const style = land ? ` style="width:${((f.h / f.w) * 100).toFixed(2)}%;height:${((f.w / f.h) * 100).toFixed(2)}%"` : '';
     return `<img class="${land ? 'is-landscape' : ''}"${style} src="${card.thumbUrl}" alt="" draggable="false">`;
+  }
+
+  // Miniatura da lista (na orientação do próprio card).
+  function listThumb(card) {
+    const cls = isSticker(card) ? 'is-sticker' : '';
+    return `<img class="${cls}" src="${card.thumbUrl}" alt="" draggable="false">`;
+  }
+
+  function countText(list, pages) {
+    const n = (pred) => list.filter(pred).reduce((t, c) => t + (c.copies || 1), 0);
+    const st = n(isSticker);
+    const cd = n((c) => !isSticker(c));
+    const parts = [];
+    if (cd) parts.push(`${cd} ${cd === 1 ? 'card' : 'cards'}`);
+    if (st) parts.push(`${st} ${st === 1 ? 'adesivo' : 'adesivos'}`);
+    if (pages) parts.push(`${pages} ${pages === 1 ? 'folha' : 'folhas'}`);
+    return parts.join(' · ');
   }
 
   function renderSheet() {
     invalidatePdf();
-    const pages = paginate(cards);
-    const total = pages.reduce((n, p) => n + p.length, 0);
-    $('[data-count]').textContent = total ? `${total} ${total === 1 ? 'card' : 'cards'} · ${pages.length} ${pages.length === 1 ? 'folha' : 'folhas'}` : '';
-    const slots = slotPositions();
+    const list = sheetRecords();
+    const pages = layoutSheet(list);
+    $('[data-count]').textContent = list.length ? countText(list, pages.length) : '';
     const pct = (v, of) => `${((v / of) * 100).toFixed(3)}%`;
-    const shown = pages.length ? pages : [[]];
+    const box = (it) => `left:${pct(it.x, SHEET.pageW)};top:${pct(it.y, SHEET.pageH)};width:${pct(it.w, SHEET.pageW)};height:${pct(it.h, SHEET.pageH)}`;
+    let shown = pages;
+    if (!pages.length) {
+      // folha vazia: mostra onde os cards vão ficar
+      const ghost = layoutSheet([{ id: 'x', copies: 9, design: { format: 'card' } }])[0];
+      shown = [{ ghost: true, items: ghost.items }];
+    }
     $('[data-pages]').innerHTML = shown
       .map(
         (page, p) => `
       <figure class="page" data-page="${p}">
         <div class="page__paper">
-          ${slots
-            .map((s, i) => {
-              const card = page[i];
-              const style = `left:${pct(s.x, SHEET.pageW)};top:${pct(s.y, SHEET.pageH)};width:${pct(SHEET.slotW, SHEET.pageW)};height:${pct(SHEET.slotH, SHEET.pageH)}`;
-              return card
-                ? `<button type="button" class="slot is-filled" style="${style}" data-edit="${card.id}" data-slot="${p * PER_PAGE + i}" aria-label="Editar este card">${thumbImg(card)}</button>`
-                : `<span class="slot" style="${style}" data-slot="${p * PER_PAGE + i}"></span>`;
+          ${page.items
+            .map((it) => {
+              if (page.ghost) return `<span class="slot" style="${box(it)}"></span>`;
+              const c = it.rec;
+              const kind = it.sticker ? ' slot--sticker' : it.full ? ' slot--full' : it.folded ? ' slot--folded' : '';
+              const f = it.sticker ? null : formatInfo(c.design.format);
+              const r = f && f.radius ? ` slot--r${f.id}` : '';
+              if (it.sticker) return `<span class="slot is-filled${kind}" style="${box(it)}">${thumbImg(c)}</span>`;
+              return `<button type="button" class="slot is-filled${kind}${r}" style="${box(it)}" data-edit="${c.id}" aria-label="Editar">${thumbImg(c)}</button>`;
             })
             .join('')}
         </div>
-        ${shown.length > 1 ? `<figcaption>Folha ${p + 1} de ${shown.length}</figcaption>` : ''}
+        ${shown.length > 1 ? `<figcaption>${page.full ? 'Pôster' : 'Folha'} ${p + 1} de ${shown.length}</figcaption>` : ''}
       </figure>`
       )
       .join('');
 
-    const list = $('[data-list]');
-    if (!cards.length) {
-      list.innerHTML = `<li class="card-list__empty">Sua folha ainda está vazia. Monte um card e toque em <strong>Colocar na folha</strong>. Cabem ${PER_PAGE} cards em cada folha A4.</li>`;
+    const ul = $('[data-list]');
+    if (!list.length) {
+      ul.innerHTML = `<li class="card-list__empty">Sua folha ainda está vazia. Monte um card e toque em <strong>Colocar na folha</strong>. Cabem 9 photo cards em cada folha A4, e dá para misturar mini polaroids, marcadores, cartões e adesivos.</li>`;
     } else {
-      list.innerHTML = cards
-        .map(
-          (c, i) => `
-        <li class="card-item${c.id === editingId ? ' is-editing' : ''}">
-          <button type="button" class="card-item__thumb" data-edit="${c.id}" aria-label="Editar card ${i + 1}">${thumbImg(c)}</button>
+      ul.innerHTML = list
+        .map((c, i) => {
+          if (isSticker(c)) {
+            const dims = stickerDims(c);
+            const cm = fmt(Math.round(Math.max(dims.w, dims.h)) / 10);
+            return `
+        <li class="card-item card-item--sticker">
+          <span class="card-item__thumb">${listThumb(c)}</span>
           <div class="card-item__copies">
-            <span class="card-item__label" id="cp-${c.id}">Cópias${hasBack(c) ? ' <span class="tag">com verso</span>' : ''}</span>
+            <span class="card-item__label" id="sz-${c.id}">Adesivo · tamanho</span>
+            <div class="stepper" role="group" aria-labelledby="sz-${c.id}">
+              <button type="button" class="round-btn" data-stsize="-5" data-id="${c.id}" aria-label="Menor" ${c.sticker.sizeMm <= 20 ? 'disabled' : ''}>${icon('minus', { size: 18 })}</button>
+              <output>${cm} cm</output>
+              <button type="button" class="round-btn" data-stsize="5" data-id="${c.id}" aria-label="Maior" ${c.sticker.sizeMm >= 150 ? 'disabled' : ''}>${icon('plus', { size: 18 })}</button>
+            </div>
+            <span class="card-item__label" id="cp-${c.id}">Quantos</span>
+            <div class="stepper" role="group" aria-labelledby="cp-${c.id}">
+              <button type="button" class="round-btn" data-copies="-1" data-id="${c.id}" aria-label="Um a menos" ${c.copies <= 1 ? 'disabled' : ''}>${icon('minus', { size: 18 })}</button>
+              <output>${c.copies}</output>
+              <button type="button" class="round-btn" data-copies="1" data-id="${c.id}" aria-label="Um a mais" ${c.copies >= 99 ? 'disabled' : ''}>${icon('plus', { size: 18 })}</button>
+            </div>
+          </div>
+          <div class="card-item__actions">
+            <button type="button" class="round-btn round-btn--danger" data-del="${c.id}" aria-label="Tirar adesivo da folha">${icon('trash', { size: 20 })}</button>
+          </div>
+        </li>`;
+          }
+          const f = formatInfo(c.design.format);
+          return `
+        <li class="card-item${c.id === editingId ? ' is-editing' : ''}">
+          <button type="button" class="card-item__thumb" data-edit="${c.id}" aria-label="Editar ${f.short.toLowerCase()} ${i + 1}" title="Editar">${listThumb(c)}<span class="card-item__pen">${icon('edit', { size: 14 })}</span></button>
+          <div class="card-item__copies">
+            <span class="card-item__label" id="cp-${c.id}">${f.id === 'card' ? 'Cópias' : f.short}${hasBack(c) ? ' <span class="tag">com verso</span>' : ''}</span>
             <div class="stepper" role="group" aria-labelledby="cp-${c.id}">
               <button type="button" class="round-btn" data-copies="-1" data-id="${c.id}" aria-label="Uma cópia a menos" ${c.copies <= 1 ? 'disabled' : ''}>${icon('minus', { size: 18 })}</button>
               <output>${c.copies}</output>
@@ -1028,30 +1348,35 @@ export async function mount(root) {
             </div>
           </div>
           <div class="card-item__actions">
-            <button type="button" class="round-btn" data-edit="${c.id}" aria-label="Editar card ${i + 1}">${icon('edit', { size: 20 })}</button>
-            <button type="button" class="round-btn round-btn--danger" data-del="${c.id}" aria-label="Apagar card ${i + 1}">${icon('trash', { size: 20 })}</button>
+            <button type="button" class="round-btn" data-dup="${c.id}" aria-label="Duplicar ${i + 1}" title="Duplicar">${icon('copy', { size: 20 })}</button>
+            <button type="button" class="round-btn round-btn--danger" data-del="${c.id}" aria-label="Tirar da folha ${i + 1}" title="Tirar da folha">${icon('trash', { size: 20 })}</button>
           </div>
-        </li>`
-        )
+        </li>`;
+        })
         .join('');
     }
-    $('[data-act="print"]').disabled = !cards.length;
-    $('[data-duplex-tip]').hidden = !cards.some(hasBack);
+    $('[data-act="print"]').disabled = !list.length;
+    $('[data-act="print-jpg"]').disabled = !list.length;
+    $('[data-duplex-tip]').hidden = !list.some(hasBack);
+    $('[data-folded-tip]').hidden = !list.some((c) => !isSticker(c) && c.design.format === 'folded');
     if (cloudList) renderCloud();
   }
 
-  // Grava o card do editor na folha: novo, ou por cima do card que está sendo editado.
+  // Grava o card do editor: novo (vai para a folha), ou por cima do card que está sendo editado.
   async function storeCurrent() {
     if (bg.active) await finishBg();
+    if (draw.active) finishDraw();
     const design = clone(editor.design);
     await ensureFonts(design);
     const thumbBlob = await canvasToBlob(renderThumb(design, 'front', getImg), 'image/png');
     const old = editingId && cards.find((c) => c.id === editingId);
     const record = {
+      ...(old ? recordOf(old) : {}),
       v: 2,
       id: old ? old.id : newId(),
       createdAt: old ? old.createdAt : Date.now(),
       copies: old ? old.copies : 1,
+      inSheet: old ? onSheet(old) : true,
       design,
       images: blobsFor(design),
       thumbBlob,
@@ -1074,13 +1399,13 @@ export async function mount(root) {
       resetEditor();
       renderSheet();
       flyToSheet(record.id, fromRect);
-      toast(wasEditing ? 'Card salvo!' : 'Card colocado na folha!', {
-        action: window.innerWidth < 1000 ? 'Ver folha' : undefined,
+      toast(wasEditing ? 'Salvo!' : 'Colocado na folha!', {
+        action: window.innerWidth < 1000 && onSheet(record) ? 'Ver folha' : undefined,
         onAction: () => $('[data-sheet]').scrollIntoView({ behavior: 'smooth', block: 'start' }),
       });
     } catch (err) {
       console.error(err);
-      toast('Não consegui salvar o card. Tente de novo.', { kind: 'error' });
+      toast('Não consegui salvar. Tente de novo.', { kind: 'error' });
     } finally {
       busy = false;
       syncChrome();
@@ -1095,13 +1420,15 @@ export async function mount(root) {
     setTimeout(() => target.classList.remove('is-new'), 900);
     if (reduceMotion()) return;
     const card = cards.find((c) => c.id === id);
-    const to = target.getBoundingClientRect();
+    let to = target.getBoundingClientRect();
+    const f = formatInfo(card.design.format);
+    if (f.id === 'folded') to = { left: to.left + to.width / 2, top: to.top, width: to.width / 2, height: to.height };
     const ghost = document.createElement('img');
     ghost.src = card.thumbUrl;
     ghost.className = 'fly-ghost';
     Object.assign(ghost.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px` });
     document.body.appendChild(ghost);
-    const land = card.design.orientation === 'landscape';
+    const land = f.rotate && card.design.orientation === 'landscape';
     const sx = (land ? to.height : to.width) / from.width;
     const dx = to.left + to.width / 2 - (from.left + from.width / 2);
     const dy = to.top + to.height / 2 - (from.top + from.height / 2);
@@ -1120,7 +1447,7 @@ export async function mount(root) {
 
   async function editCard(id) {
     if (busy) return;
-    if (!cards.some((c) => c.id === id)) return;
+    if (!cards.some((c) => c.id === id && !isSticker(c))) return;
     if (id === editingId) {
       if (window.innerWidth < 1000) stage.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
@@ -1134,14 +1461,15 @@ export async function mount(root) {
           await storeCurrent();
         } catch (err) {
           console.error(err);
-          toast('Não consegui salvar o card que estava aberto, então ele continua aqui.', { kind: 'error' });
+          toast('Não consegui salvar o que estava aberto, então ele continua aqui.', { kind: 'error' });
           return;
         }
-        toast(wasEditing ? 'Salvei as mudanças do card anterior.' : 'O card que você estava fazendo foi para a folha.');
+        toast(wasEditing ? 'Salvei as mudanças do anterior.' : 'O que você estava fazendo foi para a folha.');
       }
       const card = cards.find((c) => c.id === id);
       if (!card) return;
       cancelBg();
+      if (draw.active) finishDraw();
       releaseAll();
       await loadImages(card.images);
       editingId = id;
@@ -1168,15 +1496,25 @@ export async function mount(root) {
     renderSheet();
   }
 
+  async function changeStickerSize(id, delta) {
+    const card = cards.find((c) => c.id === id);
+    if (!card || !isSticker(card)) return;
+    card.sticker = { ...card.sticker, sizeMm: Math.max(20, Math.min(150, card.sticker.sizeMm + delta)) };
+    await db.putCard(recordOf(card));
+    renderSheet();
+  }
+
+  // Lixeira da folha: o card sai da folha, mas continua guardado no fichário.
+  // Adesivo para imprimir sai de vez (o desenho continua em Meus adesivos).
   async function deleteCard(id) {
     const card = cards.find((c) => c.id === id);
     if (!card) return;
     const rec = recordOf(card);
-    await db.deleteCard(id);
-    if (editingId === id) resetEditor();
+    if (isSticker(card)) await db.deleteCard(id);
+    else await db.putCard({ ...rec, inSheet: false });
     await loadCards();
     renderSheet();
-    toast('Card apagado.', {
+    toast(isSticker(card) ? 'Adesivo tirado da folha.' : 'Tirei da folha. Ele continua guardado no fichário.', {
       action: 'Desfazer',
       duration: 6000,
       onAction: async () => {
@@ -1185,6 +1523,148 @@ export async function mount(root) {
         renderSheet();
       },
     });
+  }
+
+  async function duplicateCard(id) {
+    const card = cards.find((c) => c.id === id);
+    if (!card || isSticker(card)) return;
+    const copy = await duplicateRecord(card);
+    await loadCards();
+    renderSheet();
+    toast('Cópia feita! Abra para trocar a foto.', { action: 'Abrir', duration: 6000, onAction: () => editCard(copy.id) });
+  }
+
+  // ---------- série ----------
+  // Um card igual ao do editor para cada foto escolhida, com numeração se quiser.
+  function openSeries() {
+    if (draw.active) finishDraw();
+    if (bg.active) return;
+    const f = formatInfo(editor.design.format);
+    const where = { v: 'front' };
+    openModal({
+      title: 'Fazer uma série',
+      html: `
+        <p class="modal__text">Escolha várias fotos de uma vez: cada uma vira um ${f.short.toLowerCase()} igual a este (mesmo fundo, moldura, textos e adesivos), só trocando a foto. Todos vão para a folha.</p>
+        <label class="check">
+          <input type="checkbox" data-series-num checked>
+          <span class="check__box">${icon('check', { size: 16 })}</span>
+          Numerar, como coleção (01/09, 02/09…)
+        </label>
+        <div class="seg seg--sm" role="group" aria-label="Onde vai o número" data-series-where>
+          <button type="button" class="seg__btn" data-where="front" aria-pressed="true">Na ${f.sides[0].toLowerCase()}</button>
+          <button type="button" class="seg__btn" data-where="back" aria-pressed="false">No ${f.sides[1].toLowerCase()}</button>
+        </div>
+        <button type="button" class="btn btn--primary btn--wide" data-series-pick>${icon('photo', { size: 22 })}Escolher as fotos</button>
+        <input type="file" accept="image/*" multiple hidden data-series-file>
+        <p class="modal__status" data-series-status role="status"></p>`,
+      onMount(body, close) {
+        const file = body.querySelector('[data-series-file]');
+        const status = body.querySelector('[data-series-status]');
+        body.addEventListener('click', (e) => {
+          const b = e.target.closest('button');
+          if (!b) return;
+          if (b.dataset.where) {
+            where.v = b.dataset.where;
+            body.querySelectorAll('[data-where]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+          }
+          if (b.hasAttribute('data-series-pick')) file.click();
+        });
+        file.addEventListener('change', async () => {
+          const files = [...(file.files || [])].filter((x) => x.type.startsWith('image/')).slice(0, 40);
+          file.value = '';
+          if (!files.length) return;
+          body.querySelectorAll('button, input').forEach((x) => (x.disabled = true));
+          try {
+            const n = await makeSeries(files, { number: body.querySelector('[data-series-num]').checked, where: where.v }, (i) => {
+              status.textContent = `Fazendo ${i} de ${files.length}…`;
+            });
+            close();
+            toast(`${n} ${n === 1 ? 'card feito' : 'cards feitos'} e colocados na folha!`);
+          } catch (err) {
+            console.error(err);
+            status.textContent = 'Não consegui fazer a série. Tente com menos fotos.';
+            body.querySelectorAll('button, input').forEach((x) => (x.disabled = false));
+          }
+        });
+      },
+    });
+  }
+
+  async function makeSeries(files, { number, where }, onStep) {
+    const base = clone(editor.design);
+    const u = editor.unit();
+    const { w, h } = cardSize(base);
+    for (const sd of [base.front, base.back]) sd.layers = sd.layers.filter((l) => !l.serial);
+    if (!cellRects(base.front, base).length) base.front.layout = '1';
+    const baseBlobs = blobsFor(base);
+    await ensureFonts(base);
+    const n = files.length;
+    const digits = Math.max(2, String(n).length);
+    let made = 0;
+    const createdIds = [];
+    for (let i = 0; i < n; i++) {
+      onStep && onStep(i + 1);
+      let photo;
+      try {
+        photo = await importImageFile(files[i]);
+      } catch (_) {
+        continue;
+      }
+      const key = newId();
+      const d = clone(base);
+      const rect = cellFor(d.front, d, 0);
+      const old = d.front.layers.find((l) => l.type === 'photo' && l.cell === 0);
+      const scale = coverScale(photo.img.naturalWidth, photo.img.naturalHeight, rect.w, rect.h, 0);
+      if (old) Object.assign(old, { imageKey: key, originalKey: null, bgOps: null, x: 0, y: 0, rotation: 0, flip: false, scale });
+      else {
+        let at = 0;
+        d.front.layers.forEach((l, j) => {
+          if (l.type === 'photo') at = j + 1;
+        });
+        d.front.layers.splice(at, 0, newPhotoLayer(key, 0, photo.img, rect));
+      }
+      if (number) {
+        d[where].layers.push(
+          newTextLayer({
+            serial: true,
+            text: `${String(made + 1).padStart(digits, '0')}/${String(n).padStart(digits, '0')}`,
+            font: 'bungee',
+            size: 3.4 * u,
+            color: '#ffffff',
+            stroke: { color: '#c92f6c', width: 5 },
+            x: w / 2 - 8.5 * u,
+            y: h / 2 - 5.5 * u,
+          })
+        );
+      }
+      const all = { ...baseBlobs, [key]: photo.blob };
+      const imgs = {};
+      for (const k of imageKeys(d)) if (all[k]) imgs[k] = all[k];
+      const getter = (k) => (k === key ? photo.img : getImg(k));
+      const thumbBlob = await thumbBlobFor(d, getter);
+      releaseImage(photo.img);
+      const rec = await putRecord({ v: 2, id: newId(), createdAt: Date.now() + i, copies: 1, inSheet: true, design: d, images: imgs, thumbBlob });
+      createdIds.push(rec.id);
+      made++;
+    }
+    // Alguma foto não abriu: a numeração passa a contar só as que entraram ("01/08" em vez de "01/09").
+    if (number && made && made < n) {
+      for (let j = 0; j < createdIds.length; j++) {
+        const rec = migrateRecord(await db.getCard(createdIds[j]));
+        const t = rec.design[where].layers.find((l) => l.serial);
+        if (t) t.text = `${String(j + 1).padStart(digits, '0')}/${String(made).padStart(digits, '0')}`;
+        if (where === 'front') {
+          const m = new Map();
+          for (const [k, b] of Object.entries(rec.images)) m.set(k, await blobToImage(b));
+          rec.thumbBlob = await thumbBlobFor(rec.design, (k) => m.get(k) || null);
+          m.forEach(releaseImage);
+        }
+        await putRecord(rec);
+      }
+    }
+    await loadCards();
+    renderSheet();
+    return made;
   }
 
   // ---------- nuvem ----------
@@ -1230,12 +1710,13 @@ export async function mount(root) {
     }
     ul.innerHTML = cloudList
       .map((c) => {
-        const here = cards.some((x) => x.id === c.id);
+        const local = cards.find((x) => x.id === c.id);
+        const here = !!local;
         const img = c.thumbUrl ? `<img class="${c.orientation === 'landscape' ? 'is-landscape' : ''}" src="${c.thumbUrl}" alt="" loading="lazy" draggable="false">` : '';
         return `<li><button type="button" class="cloud__card" data-cloud-open="${c.id}" aria-label="${here ? 'Abrir este card' : 'Trazer este card de volta para a folha'}, ${daysText(c.daysLeft)}">
           <span class="cloud__thumb">${img}</span>
           <span class="cloud__days">${daysText(c.daysLeft)}</span>
-          ${here ? '<span class="tag">na folha</span>' : ''}
+          ${here ? `<span class="tag">${onSheet(local) ? 'na folha' : 'no fichário'}</span>` : ''}
         </button></li>`;
       })
       .join('');
@@ -1279,7 +1760,8 @@ export async function mount(root) {
   }
 
   async function preparePdf() {
-    if (!cards.length) return;
+    const list = sheetRecords();
+    if (!list.length) return;
     const btn = $('[data-act="print"]');
     const label = $('[data-print-label]');
     btn.disabled = true;
@@ -1288,7 +1770,7 @@ export async function mount(root) {
     const loaded = [];
     try {
       const withImages = await Promise.all(
-        cards.map(async (c) => {
+        list.map(async (c) => {
           const m = new Map();
           for (const [k, b] of Object.entries(c.images || {})) m.set(k, await blobToImage(b));
           loaded.push(m);
@@ -1303,7 +1785,7 @@ export async function mount(root) {
       const blob = doc.output('blob');
       invalidatePdf();
       pdfUrl = URL.createObjectURL(blob);
-      pdfFile = new File([blob], 'photo-cards-lavinia.pdf', { type: 'application/pdf' });
+      pdfFile = new File([blob], 'folha-lavinia.pdf', { type: 'application/pdf' });
       $('[data-open]').href = pdfUrl;
       $('[data-download]').href = pdfUrl;
       const canShare = navigator.canShare && navigator.canShare({ files: [pdfFile] });
@@ -1316,15 +1798,52 @@ export async function mount(root) {
     } finally {
       loaded.forEach((m) => m.forEach((img) => releaseImage(img)));
       btn.classList.remove('is-busy');
-      btn.disabled = !cards.length;
+      btn.disabled = !sheetRecords().length;
       label.textContent = 'Preparar folha para imprimir';
+    }
+  }
+
+  // A mesma folha em JPG (uma imagem por página, 300 dpi), para salvar em Fotos ou mandar para alguém.
+  async function saveSheetJpg() {
+    const list = sheetRecords();
+    if (!list.length) return;
+    const btn = $('[data-act="print-jpg"]');
+    const label = $('[data-jpg-label]');
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    label.textContent = 'Montando a imagem…';
+    const loaded = [];
+    try {
+      const withImages = await Promise.all(
+        list.map(async (c) => {
+          const m = new Map();
+          for (const [k, b] of Object.entries(c.images || {})) m.set(k, await blobToImage(b));
+          loaded.push(m);
+          return { ...c, getImg: (k) => m.get(k) || null };
+        })
+      );
+      const files = await buildSheetImages(withImages, {
+        cutLine: $('[data-cutline]').checked,
+        onProgress: (p) => (label.textContent = `Montando a imagem… ${Math.round(p * 100)}%`),
+      });
+      if (!alive) return;
+      const r = await shareOrDownload(files, 'Folha da Lavínia');
+      if (r === 'downloaded') toast(files.length > 1 ? `${files.length} imagens salvas (uma por página)!` : 'Imagem da folha salva!');
+    } catch (err) {
+      console.error(err);
+      toast('Não consegui montar a imagem da folha. Tente de novo.', { kind: 'error' });
+    } finally {
+      loaded.forEach((m) => m.forEach((img) => releaseImage(img)));
+      btn.classList.remove('is-busy');
+      btn.disabled = !sheetRecords().length;
+      label.textContent = 'Salvar folha como imagem (JPG)';
     }
   }
 
   async function sharePdf() {
     if (!pdfFile) return;
     try {
-      await navigator.share({ files: [pdfFile], title: 'Photo cards da Lavínia' });
+      await navigator.share({ files: [pdfFile], title: 'Folha da Lavínia' });
     } catch (_) {}
   }
 
@@ -1333,11 +1852,48 @@ export async function mount(root) {
     const t = e.target.closest('button, a');
     if (!t || !root.contains(t) || t.disabled) return;
     const ds = t.dataset;
+    if (draw.active && (ds.tab || ds.side || ds.format || ds.orient || ds.template || ds.layout || ds.frame || ds.edit || ds.layerSelect)) finishDraw();
     const L = selected();
     const act = ds.act;
 
     if (act) {
       switch (act) {
+        case 'loose-photo':
+          return pickPhoto(null, false, true);
+        case 'to-sticker':
+          return toSticker();
+        case 'save-cutout':
+          return saveCutout();
+        case 'add-calendar':
+          return addCalendar();
+        case 'cal-prev':
+        case 'cal-next':
+          if (L && L.kind === 'calendar') {
+            editor.change(() => {
+              const now = new Date();
+              let m = (L.month == null ? now.getMonth() : L.month) + (act === 'cal-next' ? 1 : -1);
+              let y = L.year || now.getFullYear();
+              if (m < 0) {
+                m = 11;
+                y--;
+              }
+              if (m > 11) {
+                m = 0;
+                y++;
+              }
+              L.month = m;
+              L.year = y;
+            }, { commit: true });
+          }
+          return;
+        case 'draw-start':
+          return startDraw();
+        case 'draw-done':
+          return finishDraw();
+        case 'save-image':
+          return saveImage();
+        case 'series':
+          return openSeries();
         case 'pick':
           if (isBgPhoto(L)) return pickPhoto(null, true);
           return pickPhoto(L && L.type === 'photo' ? L.cell : null);
@@ -1411,6 +1967,8 @@ export async function mount(root) {
           return startNew();
         case 'print':
           return preparePdf();
+        case 'print-jpg':
+          return saveSheetJpg();
         case 'share':
           return sharePdf();
       }
@@ -1418,6 +1976,25 @@ export async function mount(root) {
     }
 
     if (ds.tab) return setTab(ds.tab);
+    if (ds.format) return setFormat(ds.format);
+    if (ds.pack) {
+      stickerPack = ds.pack;
+      return renderPanel(true);
+    }
+    if (ds.addMine) return addMine(ds.addMine);
+    if (ds.imgFrame && L) return editor.change(() => (L.frame = ds.imgFrame), { commit: true });
+    if (ds.pen) {
+      draw.pen = ds.pen;
+      editor.setPen({ pen: ds.pen });
+      return renderPanel(true);
+    }
+    if (ds.penSize) {
+      draw.size = ds.penSize;
+      editor.setPen({ w: penWidth() });
+      return renderPanel(true);
+    }
+    if (ds.dup) return duplicateCard(ds.dup);
+    if (ds.stsize) return changeStickerSize(ds.id, +ds.stsize);
     if (ds.orient) return editor.setOrientation(ds.orient);
     if (ds.side) {
       editor.setSide(ds.side);
@@ -1528,6 +2105,33 @@ export async function mount(root) {
   await restoreDraft();
   renderSheet();
   syncCloud();
+
+  // Meus adesivos (para a aba Adesivos).
+  async function loadLibrary() {
+    const fresh = stickerUrls(await listStickers());
+    revokeUrls(library);
+    library = fresh;
+    if (alive && tab === 'adesivos') renderPanel();
+  }
+  const stopLib = onStickersChange(loadLibrary);
+  loadLibrary();
+
+  // Vindo de outra tela: "#/photo-cards?f=poster" (começar um pôster) ou "?edit=id" (abrir um card).
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  if ([...params.keys()].length) window.history.replaceState(null, '', '#/photo-cards');
+  const wantEdit = params.get('edit');
+  const wantFormat = params.get('f');
+  if (wantEdit) await editCard(wantEdit);
+  else if (wantFormat && formatInfo(wantFormat).id === wantFormat && wantFormat !== editor.design.format) {
+    if (hasUnsaved()) {
+      try {
+        await storeCurrent();
+        toast('O que você estava fazendo foi para a folha.');
+      } catch (_) {}
+    }
+    resetEditor(wantFormat);
+    renderSheet();
+  }
   loadFonts().then(() => {
     if (!alive) return;
     editor.redraw();
@@ -1537,6 +2141,9 @@ export async function mount(root) {
   return () => {
     alive = false;
     stopCloud();
+    stopLib();
+    revokeUrls(library);
+    if (draw.active) finishDraw();
     clearTimeout(draftTimer);
     clearTimeout(textTimer);
     if (bg.active) cancelBg();

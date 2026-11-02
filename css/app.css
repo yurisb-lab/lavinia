@@ -2336,3 +2336,903 @@ span.slot {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* =====================================================================
+   Formatos, mais adesivos, desenho, pôster, meus adesivos e fichário
+   ===================================================================== */
+
+/* Escolha do formato (photo card, mini, marcador, cartão, pôster) */
+.formats {
+  display: flex;
+  gap: var(--s2);
+  overflow-x: auto;
+  padding: 4px 2px 6px;
+  scrollbar-width: none;
+}
+.formats::-webkit-scrollbar {
+  display: none;
+}
+
+.format-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 48px;
+  padding: 0 var(--s4) 0 var(--s3);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  font-weight: 800;
+  color: var(--ink-2);
+  transition: background 0.2s, color 0.2s;
+}
+
+.format-btn:hover:not(:disabled) {
+  background: var(--pink-soft);
+}
+
+.format-btn[aria-pressed='true'] {
+  background: var(--lilac-ink);
+  color: #fff;
+}
+
+.format-btn__shape {
+  display: block;
+  height: 34px;
+  min-width: 10px;
+  max-width: 34px;
+  border-radius: 3px;
+  border: 2.5px solid currentColor;
+  opacity: 0.85;
+}
+
+.format-btn:disabled {
+  opacity: 0.5;
+}
+
+.actions--more {
+  margin-top: calc(var(--s1) * -1);
+}
+
+.btn--sm {
+  min-height: 46px;
+  padding: 0 var(--s4);
+  font-size: 16px;
+  border-radius: 14px;
+}
+
+.actions--more .btn {
+  flex: 1 1 auto;
+}
+
+.stage__canvas.is-draw-mode {
+  cursor: crosshair;
+}
+
+/* Pacotes de adesivos */
+.packs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.pack-btn {
+  flex: none;
+  min-height: 40px;
+  padding: 0 var(--s3);
+  border-radius: 999px;
+  background: var(--paper);
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.pack-btn:hover {
+  background: var(--pink-soft);
+}
+
+.pack-btn[aria-selected='true'] {
+  background: var(--berry);
+  color: #fff;
+}
+
+.pack-body {
+  display: grid;
+  gap: var(--s3);
+  margin-top: var(--s3);
+}
+
+.sticker-grid--mine {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+}
+
+.sticker-btn--mine {
+  padding: 6px;
+  background-image: linear-gradient(45deg, #f6e6ee 25%, transparent 25%, transparent 75%, #f6e6ee 75%), linear-gradient(45deg, #f6e6ee 25%, transparent 25%, transparent 75%, #f6e6ee 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+  background-color: #fff;
+}
+
+.sticker-btn--mine img {
+  display: block;
+  max-width: 100%;
+  max-height: 64px;
+  object-fit: contain;
+}
+
+.font-chip--sm {
+  min-height: 42px;
+  padding: 0 var(--s3);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.font-chip--add {
+  color: var(--berry);
+}
+
+.chip-n {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  text-align: center;
+}
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+
+/* Desenhar */
+.pen-size {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.pen-size i {
+  display: block;
+  width: var(--d);
+  height: var(--d);
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+.pen-size[aria-pressed='true'] {
+  background: var(--lilac);
+  box-shadow: inset 0 0 0 3px var(--lilac-ink);
+}
+
+.draw-panel .chips {
+  gap: 6px;
+}
+
+/* Folha: formatos diferentes */
+.slot--rmini {
+  border-radius: 4% / 3.3%;
+}
+.slot--rbookmark {
+  border-radius: 8% / 2.7%;
+}
+.slot--folded,
+.slot--full,
+.slot--sticker {
+  border-radius: 0;
+}
+
+.slot--folded {
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(67, 32, 58, 0.12);
+}
+
+.slot--folded::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 1px dashed rgba(67, 32, 58, 0.25);
+}
+
+.slot img.is-half {
+  left: 50%;
+  width: 50%;
+}
+
+.slot.slot--sticker {
+  background: transparent;
+  box-shadow: none;
+}
+
+.slot img.is-sticker {
+  object-fit: contain;
+  padding: 6%;
+  filter: drop-shadow(0 0 0.6px rgba(67, 32, 58, 0.5));
+}
+
+.card-item__thumb img.is-sticker {
+  box-shadow: none;
+  object-fit: contain;
+}
+
+.card-item--sticker .card-item__copies {
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: var(--s3);
+}
+
+/* Janelinha (série, fichário) */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+  background: rgba(67, 32, 58, 0.35);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.modal.is-in {
+  opacity: 1;
+}
+
+.modal__box {
+  width: min(100%, 460px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: var(--s5);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.25s var(--ease-out);
+}
+
+.modal.is-in .modal__box {
+  transform: none;
+}
+
+.modal__box--card {
+  width: min(100%, 640px);
+}
+
+.modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-bottom: var(--s3);
+}
+
+.modal__title {
+  font-size: 26px;
+}
+
+.modal__body {
+  display: grid;
+  gap: var(--s4);
+}
+
+.modal__text {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.modal__status {
+  min-height: 1.5em;
+  font-weight: 800;
+  color: var(--lilac-ink);
+}
+
+.field__input {
+  width: 100%;
+  min-height: 50px;
+  padding: 0 var(--s3);
+  border: 2px solid var(--pink-line);
+  border-radius: 14px;
+  background: #fff;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--berry);
+}
+
+.link-btn--danger {
+  color: var(--danger);
+}
+
+.card-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+
+.card-view__img {
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+  border-radius: 20px;
+  background: var(--lilac);
+}
+
+.card-view__img img {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-2);
+}
+
+.card-view__acts {
+  display: grid;
+  gap: var(--s2);
+}
+
+.card-view__acts .btn {
+  justify-content: flex-start;
+  min-height: 50px;
+  font-size: 16px;
+}
+
+/* ---------- Meus adesivos e fichário ---------- */
+.lib,
+.binder {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--s6) var(--s5) 0;
+}
+
+.lib__title {
+  font-size: clamp(32px, 5vw, 46px);
+}
+
+.lib__sub {
+  margin-top: var(--s2);
+  max-width: 62ch;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.lib__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--s5);
+  margin-top: var(--s5);
+  align-items: start;
+}
+
+.lib__maker,
+.lib__box {
+  padding: var(--s5);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+
+.lib__side {
+  display: grid;
+  gap: var(--s4);
+}
+
+.lib__box--sheet {
+  display: grid;
+  gap: var(--s3);
+}
+
+.lib__boxhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
+.lib__h2 {
+  font-size: 24px;
+}
+
+.lib__sheet {
+  font-weight: 800;
+  color: var(--lilac-ink);
+}
+
+.maker-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s6) var(--s4);
+  text-align: center;
+  border-radius: 22px;
+  border: 3px dashed var(--pink-line);
+  background: var(--paper);
+}
+
+.maker-empty__art {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  background: var(--pink-soft);
+  color: var(--berry);
+  transform: rotate(-6deg);
+}
+
+.maker-empty__title {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.maker-empty__text {
+  max-width: 36ch;
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.maker {
+  display: grid;
+  gap: var(--s4);
+}
+
+.maker__stage {
+  position: relative;
+  height: clamp(280px, 48vh, 520px);
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 4px #fff, var(--shadow-1);
+}
+
+.maker__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.maker__help {
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.lib__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s3);
+}
+
+.lib__grid .card-list__empty {
+  grid-column: 1 / -1;
+}
+
+.lib-item {
+  position: relative;
+  display: grid;
+  gap: var(--s2);
+  padding: var(--s2);
+  border-radius: 20px;
+  background: var(--paper);
+}
+
+.lib-item__img {
+  display: grid;
+  place-items: center;
+  height: 130px;
+  border-radius: 14px;
+  background-image: linear-gradient(45deg, #f6e6ee 25%, transparent 25%, transparent 75%, #f6e6ee 75%), linear-gradient(45deg, #f6e6ee 25%, transparent 25%, transparent 75%, #f6e6ee 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+  background-color: #fff;
+}
+
+.lib-item__img img {
+  max-width: 88%;
+  max-height: 112px;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 4px rgba(67, 32, 58, 0.25));
+}
+
+.lib-item__tag {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  margin: 0;
+}
+
+.lib-item__acts {
+  display: flex;
+  gap: 6px;
+}
+
+.lib-item__acts .btn {
+  flex: 1;
+  padding: 0 var(--s2);
+  font-size: 14px;
+  min-height: 44px;
+}
+
+/* Fichário: páginas com bolsinhos plásticos */
+.binder__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin-top: var(--s5);
+}
+
+.binder__folderbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s3);
+  padding: var(--s2) var(--s4);
+  border-radius: 16px;
+  background: var(--butter);
+}
+
+.binder__folderbar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+}
+
+.binder__book {
+  display: grid;
+  gap: var(--s5);
+  margin-top: var(--s4);
+}
+
+.binder__page {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s4);
+  padding: var(--s5);
+  border-radius: 12px 28px 28px 12px;
+  background: linear-gradient(90deg, #e9e1ff 0 34px, #f6f2ff 34px);
+  box-shadow: var(--shadow-2);
+  position: relative;
+  padding-left: calc(34px + var(--s5));
+}
+
+/* argolas do fichário */
+.binder__page::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 12%;
+  bottom: 12%;
+  width: 14px;
+  background: radial-gradient(circle at 7px 7px, #fff 0 5px, #b9a6e8 5.5px 7px, transparent 7.5px) 0 0 / 14px 33.33% repeat-y;
+}
+
+.pocket {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 5.3 / 8.5;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.9), 0 2px 6px -3px rgba(60, 30, 110, 0.4);
+}
+
+/* brilho do plástico */
+.pocket::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.45) 0 18%, transparent 30% 70%, rgba(255, 255, 255, 0.25) 85%);
+  pointer-events: none;
+}
+
+.pocket__card {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 8%;
+  border-radius: 10px;
+}
+
+.pocket__card img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 5px;
+  box-shadow: 0 4px 10px -4px rgba(67, 32, 58, 0.45);
+  transition: transform 0.25s var(--ease-out);
+}
+
+.pocket__card:hover img {
+  transform: translateY(-3px) rotate(-1deg);
+}
+
+.pocket__star {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  color: #c4b4d8;
+  box-shadow: var(--shadow-1);
+}
+
+.pocket__star[aria-pressed='true'] {
+  color: #f5b301;
+}
+
+.pocket__tags {
+  position: absolute;
+  z-index: 1;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.pocket__tags .tag {
+  margin: 0;
+}
+
+.tag--sheet {
+  background: var(--pink-soft);
+  color: var(--berry-dark);
+}
+
+/* ---------- Início: blocos menores ---------- */
+.home__more {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s5);
+}
+
+.tool-tile--small {
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: var(--s4);
+  padding: var(--s5);
+  max-width: none;
+}
+
+.tool-tile--small .tool-tile__name {
+  font-size: clamp(26px, 3vw, 32px);
+}
+
+.tool-tile--small .tool-tile__text {
+  font-size: 16px;
+}
+
+.tool-tile--0 {
+  background: linear-gradient(160deg, #e6dcff, #d5ebff);
+  transform: rotate(0.7deg);
+}
+.tool-tile--1 {
+  background: linear-gradient(160deg, #d2f4e4, #fff0b3);
+  transform: rotate(-0.6deg);
+}
+.tool-tile--2 {
+  background: linear-gradient(160deg, #ffe3c4, #ffd2e4);
+  transform: rotate(0.5deg);
+}
+
+.small-art {
+  position: relative;
+  height: 120px;
+}
+
+.art-poster {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 84px;
+  height: 116px;
+  margin: -58px 0 0 -42px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 18px 1fr 1fr 1fr;
+  gap: 5px;
+  padding: 7px;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: var(--shadow-2);
+  transform: rotate(-4deg);
+}
+
+.art-poster b {
+  grid-column: 1 / -1;
+  border-radius: 3px;
+  background: var(--pink);
+}
+
+.art-poster i {
+  border-radius: 3px;
+  background: linear-gradient(180deg, #b9a3f5, #ff9cc2);
+}
+
+.art-poster i:nth-of-type(2n) {
+  background: linear-gradient(180deg, #8fd8b9, #d5ebff);
+}
+
+.art-sticker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 5px solid #fff;
+  box-shadow: var(--shadow-2);
+  color: #fff;
+}
+
+.art-sticker--a {
+  margin: -40px 0 0 -70px;
+  background: var(--pink);
+  transform: rotate(-12deg);
+}
+.art-sticker--b {
+  margin: -24px 0 0 -6px;
+  background: #ffc93c;
+  border-radius: 18px;
+  transform: rotate(10deg);
+}
+.art-sticker--c {
+  margin: -56px 0 0 36px;
+  width: 48px;
+  height: 48px;
+  background: #b79cff;
+}
+
+.art-binder {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 150px;
+  height: 104px;
+  margin: -52px 0 0 -75px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 8px 8px 8px 22px;
+  border-radius: 6px 14px 14px 6px;
+  background: linear-gradient(90deg, #d8ccff 0 14px, #f6f2ff 14px);
+  box-shadow: var(--shadow-2);
+  transform: rotate(-3deg);
+}
+
+.art-binder i {
+  border-radius: 4px;
+  background: linear-gradient(180deg, #ffd1e3, #d9c8ff);
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+@media (max-width: 1080px) {
+  .lib__cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .home__more {
+    grid-template-columns: 1fr;
+  }
+  .tool-tile--small {
+    grid-template-columns: 140px 1fr;
+    align-items: center;
+  }
+  .binder__page {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .lib,
+  .binder {
+    padding: var(--s5) var(--s4) 0;
+  }
+  .tool-tile--small {
+    grid-template-columns: 1fr;
+  }
+  .card-view {
+    grid-template-columns: 1fr;
+  }
+  .card-view__img img {
+    max-height: 240px;
+  }
+  .binder__page {
+    gap: var(--s3);
+    padding: var(--s3) var(--s3) var(--s3) calc(30px + var(--s3));
+  }
+  .actions--more .btn {
+    flex: 1 1 45%;
+  }
+  .format-btn {
+    padding: 0 var(--s3) 0 var(--s2);
+  }
+}
+
+/* Lista da folha: a miniatura abre para editar (lápis no canto) */
+.card-item__thumb {
+  position: relative;
+}
+
+.card-item__pen {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--berry);
+  color: #fff;
+  box-shadow: 0 0 0 3px #fff;
+}
+
+.card-item--sticker .card-item__copies {
+  grid-template-columns: 1fr;
+  row-gap: 2px;
+}
+
+.card-item--sticker .stepper output {
+  min-width: 64px;
+  white-space: nowrap;
+  font-size: 19px;
+}
+
+.binder__page {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.binder__book .card-list__empty {
+  max-width: 780px;
+}
+
+.card-view .field__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

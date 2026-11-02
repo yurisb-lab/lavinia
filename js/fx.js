@@ -90,7 +90,7 @@ function makeCanvas(w, h) {
 }
 
 // Contorno: a silhueta da foto (o que não é transparente) é carimbada em volta, em círculo.
-function addOutline(base, radius, color) {
+export function addOutline(base, radius, color) {
   const pad = Math.ceil(radius) + 2;
   const W = base.width + pad * 2;
   const H = base.height + pad * 2;

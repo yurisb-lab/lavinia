@@ -1,4 +1,4 @@
-// Medidas e modelo do photo card.
+// Medidas e modelo do photo card (e dos outros formatos: mini polaroid, marcador, cartão e pôster).
 // Tudo é guardado em milímetros, então a tela e o PDF usam a mesma conta.
 
 export const CARD = {
@@ -10,11 +10,39 @@ export const CARD = {
 export const PRINT_DPI = 300;
 export const PX_PER_MM_PRINT = PRINT_DPI / 25.4;
 
-const CELL_GAP = 1.6; // mm entre as fotos de uma colagem
+const CELL_GAP = 1.6; // mm entre as fotos de uma colagem (no photo card)
 const CELL_RADIUS = 1.5; // mm
 
-export function cardSize(orientation) {
-  return orientation === 'landscape' ? { w: CARD.long, h: CARD.short } : { w: CARD.short, h: CARD.long };
+// Formatos. w e h são o tamanho em pé (mm). rotate = pode ficar deitado.
+// sides = nome dos dois lados. safe = margem que a impressora pode cortar (só no pôster).
+export const FORMATS = [
+  { id: 'card', name: 'Photo card', short: 'Card', w: 53, h: 85, radius: 3, rotate: true, sides: ['Frente', 'Verso'] },
+  { id: 'mini', name: 'Mini polaroid', short: 'Mini', w: 50, h: 60, radius: 2, rotate: true, sides: ['Frente', 'Verso'] },
+  { id: 'bookmark', name: 'Marcador de página', short: 'Marcador', w: 50, h: 150, radius: 4, rotate: false, sides: ['Frente', 'Verso'] },
+  { id: 'folded', name: 'Cartão dobrável', short: 'Cartão', w: 95, h: 133, radius: 0, rotate: false, sides: ['Capa', 'Dentro'] },
+  { id: 'poster', name: 'Pôster A4', short: 'Pôster', w: 210, h: 297, radius: 0, rotate: true, sides: ['Frente', 'Verso'], safe: 5 },
+];
+
+export const formatInfo = (id) => FORMATS.find((f) => f.id === id) || FORMATS[0];
+
+// Aceita a orientação ('portrait' | 'landscape') ou qualquer coisa com { orientation, format } (o design).
+function geo(g) {
+  if (!g || typeof g === 'string') return { orientation: g || 'portrait', format: 'card' };
+  return { orientation: g.orientation || 'portrait', format: g.format || 'card' };
+}
+
+export function cardSize(g) {
+  const { orientation, format } = geo(g);
+  const f = formatInfo(format);
+  return orientation === 'landscape' && f.rotate ? { w: f.h, h: f.w } : { w: f.w, h: f.h };
+}
+
+export const cardRadius = (g) => formatInfo(geo(g).format).radius;
+
+// Quanto o formato é maior que o photo card (para molduras, textos e adesivos acompanharem).
+export function unitOf(g) {
+  const f = formatInfo(geo(g).format);
+  return Math.min(f.w, f.h) / CARD.short;
 }
 
 export function uid() {
@@ -38,12 +66,15 @@ export const FRAMES = [
 export const frameInfo = (id) => FRAMES.find((f) => f.id === id) || FRAMES[0];
 
 // Janela da moldura, em mm a partir do canto de cima à esquerda do card.
-export function frameWindow(frame, orientation) {
-  const { w, h } = cardSize(orientation);
+// g = orientação ou o design (para saber o formato).
+export function frameWindow(frame, g) {
+  const { w, h } = cardSize(g);
   const f = frameInfo(frame && frame.id);
-  if (!f.inset) return { x: 0, y: 0, w, h, r: CARD.radius };
-  const bottom = f.bottom ? (orientation === 'landscape' ? f.bottomLandscape : f.bottom) : f.inset;
-  return { x: f.inset, y: f.inset, w: w - 2 * f.inset, h: h - f.inset - bottom, r: CELL_RADIUS };
+  if (!f.inset) return { x: 0, y: 0, w, h, r: cardRadius(g) };
+  const u = unitOf(g);
+  const inset = f.inset * u;
+  const bottom = f.bottom ? (w > h ? f.bottomLandscape : f.bottom) * u : inset;
+  return { x: inset, y: inset, w: w - 2 * inset, h: h - inset - bottom, r: CELL_RADIUS * Math.sqrt(u) };
 }
 
 // ---------- colagem ----------
@@ -57,16 +88,36 @@ export const LAYOUTS = [
   { id: '3r', name: 'Três em fileira', cells: [[0, 0, 1, 1 / 3], [0, 1 / 3, 1, 1 / 3], [0, 2 / 3, 1, 1 / 3]] },
   { id: '3l', name: 'Três, uma grande ao lado', cells: [[0, 0, 0.58, 1], [0.58, 0, 0.42, 0.5], [0.58, 0.5, 0.42, 0.5]] },
   { id: '4', name: 'Quatro', cells: [[0, 0, 0.5, 0.5], [0.5, 0, 0.5, 0.5], [0, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]] },
+  // Pôster: mais fotos, e algumas com espaço para um título em cima.
+  { id: '6', name: 'Seis', big: true, cells: grid(2, 3) },
+  { id: '9', name: 'Nove', big: true, cells: grid(3, 3) },
+  { id: '12', name: 'Doze', big: true, cells: grid(3, 4) },
+  { id: '5m', name: 'Mosaico', big: true, cells: [[0, 0, 1, 0.5], [0, 0.5, 0.5, 0.25], [0.5, 0.5, 0.5, 0.25], [0, 0.75, 0.5, 0.25], [0.5, 0.75, 0.5, 0.25]] },
+  { id: '6t', name: 'Título e seis', big: true, cells: grid(2, 3, 0.17) },
+  { id: '9t', name: 'Título e nove', big: true, cells: grid(3, 3, 0.17) },
+  { id: '1c', name: 'Uma no meio', big: true, cells: [[0.1, 0.2, 0.8, 0.52]] },
+  { id: 'scrap', name: 'Scrapbook', big: true, cells: [[0.04, 0.13, 0.52, 0.33], [0.46, 0.4, 0.5, 0.3], [0.06, 0.66, 0.5, 0.3]] },
+  { id: 'cal', name: 'Foto e calendário', big: true, cells: [[0, 0, 1, 0.46]] },
 ];
+
+// Grade de colunas x linhas; top = espaço livre em cima (para o título).
+function grid(cols, rows, top = 0) {
+  const out = [];
+  const h = (1 - top) / rows;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out.push([c / cols, top + r * h, 1 / cols, h]);
+  return out;
+}
 
 export const layoutInfo = (id) => LAYOUTS.find((l) => l.id === id) || LAYOUTS[1];
 
 // Espaços das fotos em mm. x/y = canto; cx/cy = centro em relação ao centro do card.
-export function cellRects(side, orientation) {
-  const { w, h } = cardSize(orientation);
-  const win = frameWindow(side.frame, orientation);
+// o = orientação ou o design.
+export function cellRects(side, o) {
+  const { w, h } = cardSize(o);
+  const win = frameWindow(side.frame, o);
   const layout = layoutInfo(side.layout);
-  const g = CELL_GAP / 2;
+  const u = unitOf(o);
+  const g = (CELL_GAP * Math.sqrt(u) * (u > 2 ? 1.6 : 1)) / 2;
   return layout.cells.map(([fx, fy, fw, fh]) => {
     const l = fx > 0.001 ? g : 0;
     const r = fx + fw < 0.999 ? g : 0;
@@ -76,7 +127,7 @@ export function cellRects(side, orientation) {
     const y = win.y + fy * win.h + t;
     const cw = fw * win.w - l - r;
     const ch = fh * win.h - t - b;
-    return { x, y, w: cw, h: ch, r: layout.cells.length === 1 ? win.r : CELL_RADIUS, cx: x + cw / 2 - w / 2, cy: y + ch / 2 - h / 2 };
+    return { x, y, w: cw, h: ch, r: layout.cells.length === 1 ? win.r : CELL_RADIUS * Math.sqrt(u), cx: x + cw / 2 - w / 2, cy: y + ch / 2 - h / 2 };
   });
 }
 
@@ -84,12 +135,12 @@ export function cellRects(side, orientation) {
 export const BG_CELL = -1;
 
 // Espaço de uma foto (o card inteiro, se for a foto de fundo).
-export function cellFor(side, orientation, index) {
+export function cellFor(side, o, index) {
   if (index === BG_CELL) {
-    const { w, h } = cardSize(orientation);
-    return { x: 0, y: 0, w, h, r: CARD.radius, cx: 0, cy: 0 };
+    const { w, h } = cardSize(o);
+    return { x: 0, y: 0, w, h, r: cardRadius(o), cx: 0, cy: 0 };
   }
-  return cellRects(side, orientation)[index] || null;
+  return cellRects(side, o)[index] || null;
 }
 
 export const isBgPhoto = (l) => !!l && l.type === 'photo' && l.cell === BG_CELL;
@@ -113,8 +164,11 @@ export function newSide(layout = '1') {
 }
 
 // O verso começa sem espaço de foto (dá para pôr uma em "Colagem" ou escolhendo uma foto).
-export function newDesign(orientation = 'portrait') {
-  return { v: 2, orientation, front: newSide('1'), back: newSide('0') };
+export function newDesign(orientation = 'portrait', format = 'card') {
+  const f = formatInfo(format);
+  const d = { v: 2, format: f.id, orientation: f.rotate ? orientation : 'portrait', front: newSide('1'), back: newSide('0') };
+  if (f.id === 'mini') d.front.frame = { id: 'polaroid', color: '#ffffff' };
+  return d;
 }
 
 export function newPhotoLayer(imageKey, cell, img, rect) {
@@ -155,8 +209,49 @@ export function newTextLayer(props = {}) {
   };
 }
 
+// kind: 'shape' (desenho), 'emoji', 'image' (meu adesivo ou foto solta) ou 'calendar'.
 export function newStickerLayer(props = {}) {
   return { id: uid(), type: 'sticker', kind: 'shape', name: 'heart', color: '#ff5c93', size: 14, x: 0, y: 0, rotation: 0, flip: false, ...props };
+}
+
+// Desenho à mão: riscos guardados em mm. Enquanto desenha, base = size = 1 e x = y = 0
+// (os pontos ficam na conta do card); no fim, o desenho é centralizado e ganha tamanho.
+export function newDrawLayer() {
+  return { id: uid(), type: 'draw', strokes: [], base: 1, size: 1, bw: 0, bh: 0, x: 0, y: 0, rotation: 0 };
+}
+
+// Ajusta um desenho recém-feito: centro no meio dos riscos e caixa do tamanho deles.
+export function finishDrawLayer(layer) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const st of layer.strokes) {
+    const r = st.w / 2 + (st.pen === 'glow' ? st.w : 0);
+    for (let i = 0; i < st.pts.length; i += 2) {
+      x0 = Math.min(x0, st.pts[i] - r);
+      x1 = Math.max(x1, st.pts[i] + r);
+      y0 = Math.min(y0, st.pts[i + 1] - r);
+      y1 = Math.max(y1, st.pts[i + 1] + r);
+    }
+  }
+  if (!isFinite(x0)) return false;
+  const cx = (x0 + x1) / 2;
+  const cy = (y0 + y1) / 2;
+  for (const st of layer.strokes) {
+    for (let i = 0; i < st.pts.length; i += 2) {
+      st.pts[i] = Math.round((st.pts[i] - cx) * 100) / 100;
+      st.pts[i + 1] = Math.round((st.pts[i + 1] - cy) * 100) / 100;
+    }
+  }
+  layer.bw = x1 - x0;
+  layer.bh = y1 - y0;
+  layer.base = Math.max(layer.bw, layer.bh, 1);
+  layer.size = layer.base;
+  layer.x = cx;
+  layer.y = cy;
+  layer.rotation = 0;
+  return true;
 }
 
 // O lado tem alguma coisa além do fundo branco liso?
@@ -175,6 +270,7 @@ export function imageKeys(design) {
   const keys = new Set();
   for (const s of [design.front, design.back]) {
     for (const l of s.layers) {
+      if (l.type === 'sticker' && l.kind === 'image' && l.imageKey) keys.add(l.imageKey);
       if (l.type !== 'photo') continue;
       if (l.imageKey) keys.add(l.imageKey);
       if (l.originalKey) keys.add(l.originalKey);
@@ -185,7 +281,7 @@ export function imageKeys(design) {
 
 // Cards guardados antes da versão com textos e adesivos: uma foto só, sem moldura.
 export function migrateRecord(rec) {
-  if (!rec || (rec.v === 2 && rec.design && rec.design.front)) return rec;
+  if (!rec || rec.kind === 'sticker' || (rec.v === 2 && rec.design && rec.design.front)) return rec;
   const old = rec.design || {};
   const t = old.transform || { x: 0, y: 0, scale: 1, rotation: 0, flip: false };
   const design = newDesign(old.orientation || 'portrait');
