@@ -1,7 +1,7 @@
 // Guarda os cards no próprio aparelho (IndexedDB), para nada se perder ao fechar o app.
 
 const DB_NAME = 'app-da-lavinia';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // 2: gaveta "stickers" (meus adesivos)
 let dbPromise = null;
 
 function open() {
@@ -12,6 +12,7 @@ function open() {
       const db = req.result;
       if (!db.objectStoreNames.contains('cards')) db.createObjectStore('cards', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+      if (!db.objectStoreNames.contains('stickers')) db.createObjectStore('stickers', { keyPath: 'id' });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -43,6 +44,11 @@ export const db = {
   getMeta: (key) => run('meta', 'readonly', (s) => s.get(key)),
   setMeta: (key, value) => run('meta', 'readwrite', (s) => s.put(value, key)),
   deleteMeta: (key) => run('meta', 'readwrite', (s) => s.delete(key)),
+  allStickers: () =>
+    run('stickers', 'readonly', (s) => s.getAll()).then((list) => (list || []).sort((a, b) => b.createdAt - a.createdAt)),
+  getSticker: (id) => run('stickers', 'readonly', (s) => s.get(id)),
+  putSticker: (st) => run('stickers', 'readwrite', (s) => s.put(st)),
+  deleteSticker: (id) => run('stickers', 'readwrite', (s) => s.delete(id)),
 };
 
 // Pede ao navegador para não apagar os dados sozinho (Safari costuma limpar sites pouco usados).
