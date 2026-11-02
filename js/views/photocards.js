@@ -6,6 +6,7 @@ import { db, newId } from '../db.js';
 import { importImageFile, blobToImage, releaseImage, canvasToBlob } from '../image.js';
 import { buildPdf, paginate, slotPositions, SHEET, PER_PAGE } from '../pdf.js';
 import { icon } from '../icons.js';
+import { createBgRemover } from '../bg-remover.js';
 import { toast } from '../toast.js';
 
 export const title = 'Photo cards';
@@ -49,6 +50,7 @@ function template() {
         </div>
         <div class="stage__drop" aria-hidden="true"><span>${icon('heart', { size: 28, fill: true })} Solte a imagem aqui</span></div>
         <span class="stage__size" data-size>${size}</span>
+        <span class="stage__busy" data-busy hidden>${icon('wand', { size: 18 })}Apagando o fundo…</span>
       </div>
       <p class="stage__hint" data-hint hidden>
         ${isTouch ? 'Arraste com um dedo para mover. Com dois dedos, abra para aumentar e gire para inclinar.' : 'Arraste para mover. Use a rodinha do mouse para aumentar (com Shift, para girar).'}
@@ -70,11 +72,29 @@ function template() {
           <button type="button" class="tool-btn" data-act="rotate90">${icon('rotate', { size: 22 })}Girar</button>
           <button type="button" class="tool-btn" data-act="flip">${icon('flip', { size: 22 })}Espelhar</button>
           <button type="button" class="tool-btn" data-act="fit">${icon('center', { size: 22 })}Encaixar</button>
+          <button type="button" class="tool-btn tool-btn--magic" data-act="bg">${icon('wand', { size: 22 })}Tirar fundo</button>
           <button type="button" class="tool-btn" data-act="pick">${icon('photo', { size: 22 })}Trocar foto</button>
           <button type="button" class="tool-btn" data-act="paste">${icon('upload', { size: 22 })}Colar</button>
         </div>
-        <div class="swatches" role="radiogroup" aria-label="Cor do fundo do card">
-          <span class="swatches__label">${icon('palette', { size: 20 })}Fundo</span>
+        <div class="bg-panel" data-bg-panel hidden>
+          <div class="bg-panel__head">
+            <p class="bg-panel__title">${icon('wand', { size: 22 })}Tirar fundo da foto</p>
+            <p class="bg-panel__help">${isTouch ? 'Toque' : 'Clique'} na cor que quer apagar. Pode ${isTouch ? 'tocar' : 'clicar'} em vários lugares. Para mover a foto, é só arrastar.</p>
+          </div>
+          <div class="slider">
+            <span class="slider__label">Força</span>
+            <input type="range" min="1" max="100" step="1" value="30" data-tol aria-label="Força do apagador">
+            <output class="slider__value" data-tol-out>30</output>
+          </div>
+          <div class="bg-panel__row">
+            <button type="button" class="tool-btn" data-act="bg-auto">${icon('sparkle', { size: 22 })}Automático</button>
+            <button type="button" class="tool-btn" data-act="bg-undo">${icon('undo', { size: 22 })}Desfazer</button>
+            <button type="button" class="tool-btn" data-act="bg-reset">${icon('photo', { size: 22 })}Foto original</button>
+          </div>
+          <button type="button" class="btn btn--primary" data-act="bg-done">${icon('check', { size: 22 })}Pronto</button>
+        </div>
+        <div class="swatches" role="radiogroup" aria-label="Cor de fundo do card">
+          <span class="swatches__label">${icon('palette', { size: 20 })}Cor de fundo</span>
           ${BACKGROUNDS.map(
             (b) => `<button type="button" class="swatch" role="radio" aria-checked="false" aria-label="${b.name}" title="${b.name}" data-bg="${b.color}" style="--sw:${b.color}"></button>`
           ).join('')}
@@ -132,6 +152,8 @@ export async function mount(root) {
   let cards = []; // { ...registro do banco, thumbUrl }
   let editingId = null;
   let currentBlob = null;
+  let originalBlob = null; // foto antes de tirar o fundo (para poder voltar)
+  let bgOps = null; // o que foi feito no "tirar fundo": { ops, tolerance }
   let pdfUrl = null;
   let pdfFile = null;
   let draftTimer = 0;
@@ -143,6 +165,7 @@ export async function mount(root) {
       syncControls();
       saveDraftSoon();
     },
+    onTap: (pt) => bgTap(pt),
   });
 
   // ---------- controles do editor ----------
@@ -171,6 +194,7 @@ export async function mount(root) {
     $('[data-save-label]').textContent = editingId ? 'Salvar card' : 'Colocar na folha';
     $('[data-new-label]').textContent = editingId ? 'Cancelar edição' : 'Começar outro card';
     $('[data-act="save"]').disabled = !has;
+    syncBg();
   }
 
   zoomInput.addEventListener('input', () => editor.setZoom(sliderToZoom(+zoomInput.value), { silent: true }));
@@ -182,9 +206,12 @@ export async function mount(root) {
   async function useImageBlob(fileOrBlob) {
     try {
       const { blob, img } = await importImageFile(fileOrBlob);
+      cancelBg();
       const prev = editor.getImage();
       const d = editor.getDesign();
       currentBlob = blob;
+      originalBlob = null;
+      bgOps = null;
       editor.load(img, { orientation: d.orientation, bg: d.bg, transform: defaultTransform(img.naturalWidth, img.naturalHeight, d.orientation) });
       if (prev && prev !== img) releaseImage(prev);
       syncControls();
@@ -273,8 +300,12 @@ export async function mount(root) {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(() => {
       if (!currentBlob || !editor.hasImage()) return db.deleteMeta('draft').catch(() => {});
-      db.setMeta('draft', { imageBlob: currentBlob, design: editor.getDesign(), editingId }).catch(() => {});
+      db.setMeta('draft', draftData()).catch(() => {});
     }, 400);
+  }
+
+  function draftData() {
+    return { imageBlob: currentBlob, originalBlob, bgOps, design: editor.getDesign(), editingId };
   }
 
   async function restoreDraft() {
@@ -284,6 +315,8 @@ export async function mount(root) {
       const img = await blobToImage(draft.imageBlob);
       if (!alive) return;
       currentBlob = draft.imageBlob;
+      originalBlob = draft.originalBlob || null;
+      bgOps = draft.bgOps || null;
       editingId = draft.editingId && cards.some((c) => c.id === draft.editingId) ? draft.editingId : null;
       editor.load(img, draft.design);
       syncControls();
@@ -291,14 +324,149 @@ export async function mount(root) {
   }
 
   function resetEditor() {
+    cancelBg();
     const prev = editor.getImage();
     editor.clear();
     if (prev) releaseImage(prev);
     currentBlob = null;
+    originalBlob = null;
+    bgOps = null;
     editingId = null;
     db.deleteMeta('draft').catch(() => {});
     syncControls();
   }
+
+  // ---------- tirar fundo ----------
+  const bg = {
+    active: false,
+    remover: null,
+    ops: [],
+    tolerance: 30,
+    originalImg: null, // foto original, já carregada
+    shownBefore: null, // imagem que estava no editor ao entrar no modo
+    result: null, // último resultado (canvas)
+    running: false,
+    timer: 0,
+  };
+  const tolInput = $('[data-tol]');
+
+  function syncBg() {
+    const has = editor.hasImage();
+    $('[data-tools]').classList.toggle('is-bg-mode', bg.active);
+    $('[data-bg-panel]').hidden = !bg.active;
+    $('[data-busy]').hidden = !bg.running;
+    $('[data-act="bg-undo"]').disabled = !bg.active || !bg.ops.length;
+    $('[data-act="bg-reset"]').disabled = !bg.active || !bg.ops.length;
+    $('[data-act="bg-auto"]').disabled = !bg.active || bg.ops.some((o) => o.kind === 'edges');
+    $('[data-act="bg-done"]').disabled = !bg.active || bg.running;
+    tolInput.disabled = !bg.active || !has;
+    $('[data-tol-out]').textContent = bg.tolerance;
+    $('[data-hint]').hidden = !has || bg.active;
+  }
+
+  async function enterBg() {
+    if (bg.active || !editor.hasImage()) return;
+    bg.active = true;
+    bg.running = true;
+    editor.setTapMode(true);
+    editor.setChecker(true);
+    syncControls();
+    try {
+      bg.shownBefore = editor.getImage();
+      bg.originalImg = await blobToImage(originalBlob || currentBlob);
+      if (!bg.remover) bg.remover = createBgRemover();
+      await bg.remover.load(bg.originalImg);
+      bg.ops = bgOps ? bgOps.ops.map((o) => ({ ...o })) : [{ kind: 'edges' }];
+      bg.tolerance = bgOps ? bgOps.tolerance : 30;
+      tolInput.value = bg.tolerance;
+      await runBg({ firstAuto: !bgOps });
+    } catch (err) {
+      console.error(err);
+      toast('Não consegui tirar o fundo desta foto.', { kind: 'error' });
+      cancelBg();
+    }
+  }
+
+  async function runBg({ firstAuto = false } = {}) {
+    if (!bg.active) return;
+    bg.running = true;
+    syncBg();
+    const res = await bg.remover.run(bg.ops, bg.tolerance);
+    if (!res || !bg.active) return; // chegou um pedido mais novo
+    bg.running = false;
+    bg.result = res.canvas;
+    editor.swapImage(res.canvas);
+    syncBg();
+    if (firstAuto && res.coverage < 0.35) {
+      toast(`O fundo desta foto tem muitas cores. ${isTouch ? 'Toque' : 'Clique'} nas partes que quer apagar.`, { duration: 6000 });
+    }
+  }
+
+  function bgTap(pt) {
+    if (!bg.active || bg.ops.length >= 200) return;
+    bg.ops.push({ kind: 'point', x: pt.x, y: pt.y });
+    runBg();
+  }
+
+  // Sai do modo sem aplicar (volta a imagem de antes).
+  function cancelBg() {
+    if (!bg.active) return;
+    bg.active = false;
+    bg.running = false;
+    editor.setTapMode(false);
+    editor.setChecker(false);
+    if (bg.shownBefore && editor.hasImage()) editor.swapImage(bg.shownBefore);
+    if (bg.originalImg && bg.originalImg !== bg.shownBefore) releaseImage(bg.originalImg);
+    bg.originalImg = bg.shownBefore = bg.result = null;
+    syncControls();
+  }
+
+  // Aplica o resultado e sai do modo.
+  async function finishBg() {
+    if (!bg.active) return;
+    const done = $('[data-act="bg-done"]');
+    done.disabled = true;
+    try {
+      // espera o último cálculo terminar
+      while (bg.running) await new Promise((r) => setTimeout(r, 50));
+      const before = bg.shownBefore;
+      if (!bg.ops.length) {
+        // Ficou igual à original: volta para ela.
+        if (originalBlob) currentBlob = originalBlob;
+        originalBlob = null;
+        bgOps = null;
+        editor.swapImage(bg.originalImg);
+        if (before && before !== bg.originalImg) releaseImage(before);
+      } else {
+        const blob = await canvasToBlob(bg.result, 'image/png');
+        const img = await blobToImage(blob);
+        if (!originalBlob) originalBlob = currentBlob;
+        currentBlob = blob;
+        bgOps = { ops: bg.ops.map((o) => ({ ...o })), tolerance: bg.tolerance };
+        editor.swapImage(img);
+        releaseImage(before);
+        releaseImage(bg.originalImg);
+      }
+      bg.active = false;
+      bg.running = false;
+      bg.originalImg = bg.shownBefore = bg.result = null;
+      editor.setTapMode(false);
+      editor.setChecker(false);
+      syncControls();
+      saveDraftSoon();
+    } catch (err) {
+      console.error(err);
+      toast('Não consegui guardar a foto sem fundo. Tente de novo.', { kind: 'error' });
+      done.disabled = false;
+    }
+  }
+
+  tolInput.addEventListener('input', () => {
+    bg.tolerance = +tolInput.value;
+    $('[data-tol-out]').textContent = bg.tolerance;
+    clearTimeout(bg.timer);
+    bg.timer = setTimeout(() => runBg(), 90);
+  });
 
   // ---------- folha ----------
   async function loadCards() {
@@ -373,6 +541,7 @@ export async function mount(root) {
     const btn = $('[data-act="save"]');
     btn.disabled = true;
     try {
+      if (bg.active) await finishBg();
       const design = editor.getDesign();
       const img = editor.getImage();
       const thumbBlob = await canvasToBlob(renderThumb(img, design), 'image/png');
@@ -384,6 +553,10 @@ export async function mount(root) {
         record = { id: old.id, createdAt: old.createdAt, copies: old.copies, design, imageBlob: currentBlob, thumbBlob };
       } else {
         record = { id: newId(), createdAt: Date.now(), copies: 1, design, imageBlob: currentBlob, thumbBlob };
+      }
+      if (originalBlob) {
+        record.originalBlob = originalBlob;
+        record.bgOps = bgOps;
       }
       await db.putCard(record);
       await loadCards();
@@ -438,9 +611,12 @@ export async function mount(root) {
     if (!card) return;
     try {
       const img = await blobToImage(card.imageBlob);
+      cancelBg();
       const prev = editor.getImage();
       editingId = id;
       currentBlob = card.imageBlob;
+      originalBlob = card.originalBlob || null;
+      bgOps = card.bgOps || null;
       editor.load(img, card.design);
       if (prev) releaseImage(prev);
       syncControls();
@@ -541,6 +717,18 @@ export async function mount(root) {
     else if (act === 'rotate90') editor.rotate90();
     else if (act === 'flip') editor.flip();
     else if (act === 'fit') editor.fit();
+    else if (act === 'bg') enterBg();
+    else if (act === 'bg-done') finishBg();
+    else if (act === 'bg-undo') {
+      bg.ops.pop();
+      runBg();
+    } else if (act === 'bg-reset') {
+      bg.ops = [];
+      runBg();
+    } else if (act === 'bg-auto') {
+      bg.ops.unshift({ kind: 'edges' });
+      runBg();
+    }
     else if (act === 'zoom-in') editor.setZoom(editor.getZoom() * 1.15);
     else if (act === 'zoom-out') editor.setZoom(editor.getZoom() / 1.15);
     else if (act === 'save') saveCard();
@@ -583,7 +771,9 @@ export async function mount(root) {
   return () => {
     alive = false;
     clearTimeout(draftTimer);
-    if (editor.hasImage()) db.setMeta('draft', { imageBlob: currentBlob, design: editor.getDesign(), editingId }).catch(() => {});
+    cancelBg();
+    if (bg.remover) bg.remover.destroy();
+    if (editor.hasImage()) db.setMeta('draft', draftData()).catch(() => {});
     editor.destroy();
     document.removeEventListener('paste', onPaste);
     window.removeEventListener('dragenter', onDragEnter);

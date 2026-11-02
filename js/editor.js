@@ -7,7 +7,7 @@ const ZOOM_MIN = 0.25; // em relação ao "preencher o card"
 const ZOOM_MAX = 8;
 const SNAP_DEG = 4;
 
-export function createEditor(canvas, { onChange, onCommit } = {}) {
+export function createEditor(canvas, { onChange, onCommit, onTap } = {}) {
   const ctx = canvas.getContext('2d');
   let img = null;
   let design = { orientation: 'portrait', bg: '#ffffff', transform: { x: 0, y: 0, scale: 1, rotation: 0, flip: false } };
@@ -16,6 +16,24 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
 
   const pointers = new Map();
   let gesture = null;
+  let tap = null; // toque rápido, sem arrastar
+  let tapMode = false; // no modo "tirar fundo", tocar apaga a cor em vez de mover
+  let checker = false; // xadrez no lugar do fundo, para ver o que ficou transparente
+  let checkerPattern = null;
+
+  function getChecker() {
+    if (checkerPattern) return checkerPattern;
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, 16, 16);
+    g.fillStyle = '#f2dbe6';
+    g.fillRect(0, 0, 8, 8);
+    g.fillRect(8, 8, 8, 8);
+    checkerPattern = ctx.createPattern(c, 'repeat');
+    return checkerPattern;
+  }
 
   // ---------- medidas da tela ----------
   function layout() {
@@ -65,7 +83,14 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
     ctx.fill();
     ctx.restore();
 
-    drawCard(ctx, img, design, r.left, r.top, k);
+    if (checker) {
+      ctx.save();
+      ctx.translate(r.left, r.top);
+      drawCard(ctx, img, { ...design, bg: getChecker() }, 0, 0, k);
+      ctx.restore();
+    } else {
+      drawCard(ctx, img, design, r.left, r.top, k);
+    }
 
     // Contorno do card
     ctx.save();
@@ -159,6 +184,7 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
       /* alguns navegadores recusam; o gesto funciona igual */
     }
     pointers.set(e.pointerId, localPoint(e));
+    tap = pointers.size === 1 ? { id: e.pointerId, ...localPoint(e) } : null;
     canvas.classList.add('is-grabbing');
     startGesture();
     e.preventDefault();
@@ -166,7 +192,12 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
 
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId) || !gesture) return;
-    pointers.set(e.pointerId, localPoint(e));
+    const lp = localPoint(e);
+    pointers.set(e.pointerId, lp);
+    if (tap && tap.id === e.pointerId) {
+      if (Math.hypot(lp.x - tap.x, lp.y - tap.y) > 8) tap = null;
+      else if (tapMode) return; // ainda pode ser um toque: não mexe na foto
+    }
     const pts = [...pointers.values()];
     const g = gesture;
     if (g.type === 'pan' && pts.length === 1) {
@@ -188,8 +219,15 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
     if (pointers.size === 0) {
+      const t = tap;
+      tap = null;
       gesture = null;
       canvas.classList.remove('is-grabbing');
+      if (t && tapMode && e.type === 'pointerup' && t.id === e.pointerId && onTap) {
+        const pt = api.screenToImage(t.x, t.y);
+        if (pt) onTap(pt);
+        return;
+      }
       commit();
     } else {
       startGesture();
@@ -275,7 +313,7 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
       design.orientation = o;
       if (img) {
         const t = design.transform;
-        design.transform = { ...t, x: 0, y: 0, scale: coverScale(img.naturalWidth, img.naturalHeight, o, t.rotation) };
+        design.transform = { ...t, x: 0, y: 0, scale: coverScale(img.naturalWidth || img.width, img.naturalHeight || img.height, o, t.rotation) };
       }
       changed();
       commit();
@@ -317,6 +355,38 @@ export function createEditor(canvas, { onChange, onCommit } = {}) {
     },
 
     commitNow: commit,
+
+    // Troca só a imagem, mantendo o enquadramento (usado pelo "tirar fundo").
+    swapImage(newImg) {
+      img = newImg;
+      redraw();
+    },
+    setTapMode(on) {
+      tapMode = !!on;
+      canvas.classList.toggle('is-tap-mode', tapMode);
+    },
+    setChecker(on) {
+      checker = !!on;
+      redraw();
+    },
+
+    // Ponto da tela -> pixel da foto (ou null se caiu fora dela).
+    screenToImage(px, py) {
+      if (!img) return null;
+      const t = design.transform;
+      const k = view.k;
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      let vx = px - (view.cx + t.x * k);
+      let vy = py - (view.cy + t.y * k);
+      const a = (-t.rotation * Math.PI) / 180;
+      const rx = vx * Math.cos(a) - vy * Math.sin(a);
+      const ry = vx * Math.sin(a) + vy * Math.cos(a);
+      vx = (t.flip ? -rx : rx) / (t.scale * k) + iw / 2;
+      vy = ry / (t.scale * k) + ih / 2;
+      if (vx < 0 || vy < 0 || vx >= iw || vy >= ih) return null;
+      return { x: vx, y: vy };
+    },
 
     destroy() {
       ro.disconnect();
