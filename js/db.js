@@ -37,6 +37,7 @@ export const db = {
     run('cards', 'readonly', (s) => s.getAll()).then((list) =>
       (list || []).sort((a, b) => a.createdAt - b.createdAt)
     ),
+  getCard: (id) => run('cards', 'readonly', (s) => s.get(id)),
   putCard: (card) => run('cards', 'readwrite', (s) => s.put(card)),
   deleteCard: (id) => run('cards', 'readwrite', (s) => s.delete(id)),
   getMeta: (key) => run('meta', 'readonly', (s) => s.get(key)),
