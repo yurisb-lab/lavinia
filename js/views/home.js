@@ -1,5 +1,5 @@
 // Tela inicial: um "mural" com as criações disponíveis.
-// Quando houver mais ferramentas, é só acrescentar outro item em TOOLS.
+// A primeira ferramenta aparece grande; as outras, num mural de blocos menores.
 
 import { db } from '../db.js';
 import { icon } from '../icons.js';
@@ -10,8 +10,28 @@ const TOOLS = [
   {
     route: 'photo-cards',
     name: 'Photo cards',
-    text: 'Escolha fotos, enfeite com textos, adesivos e molduras, e imprima numa folha A4 já com o pontilhado para recortar.',
+    text: 'Escolha fotos, enfeite com textos, adesivos e molduras, e imprima numa folha A4 já com o pontilhado para recortar. Também faz mini polaroids, marcadores de página e cartões dobráveis.',
     art: 'cards',
+  },
+  {
+    route: 'photo-cards?f=poster',
+    name: 'Pôster e mural',
+    text: 'Uma folha A4 inteira: mural de fotos, photo dump, cartaz de aniversário, scrapbook ou calendário.',
+    art: 'poster',
+  },
+  {
+    route: 'adesivos',
+    name: 'Meus adesivos',
+    text: 'Transforme fotos em figurinhas com contorno e imprima em papel adesivo.',
+    art: 'stickers',
+    meta: 'stickers',
+  },
+  {
+    route: 'fichario',
+    name: 'Meu fichário',
+    text: 'Todos os seus cards guardados, com favoritos e pastas.',
+    art: 'binder',
+    meta: 'binder',
   },
 ];
 
@@ -22,41 +42,84 @@ function greeting() {
   return 'Boa noite, Lavínia!';
 }
 
-function cardsArt() {
-  return `
+function art(kind) {
+  if (kind === 'cards') {
+    return `
     <div class="tile-art" aria-hidden="true">
       <span class="mini-card mini-card--a"><span class="mini-card__sky"></span>${icon('heart', { size: 22, fill: true })}</span>
       <span class="mini-card mini-card--b"><span class="mini-card__sky"></span>${icon('star', { size: 22, fill: true })}</span>
       <span class="mini-card mini-card--c"><span class="mini-card__sky"></span>${icon('sparkle', { size: 22, fill: true })}</span>
     </div>`;
+  }
+  if (kind === 'poster') {
+    return `
+    <div class="small-art small-art--poster" aria-hidden="true">
+      <span class="art-poster"><b></b><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    </div>`;
+  }
+  if (kind === 'stickers') {
+    return `
+    <div class="small-art small-art--stickers" aria-hidden="true">
+      <span class="art-sticker art-sticker--a">${icon('heart', { size: 30, fill: true })}</span>
+      <span class="art-sticker art-sticker--b">${icon('star', { size: 26, fill: true })}</span>
+      <span class="art-sticker art-sticker--c">${icon('sparkle', { size: 22, fill: true })}</span>
+    </div>`;
+  }
+  return `
+    <div class="small-art small-art--binder" aria-hidden="true">
+      <span class="art-binder"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    </div>`;
 }
 
+const go = (label) => `<span class="tool-tile__go">${label} ${icon('arrowLeft', { size: 20 }).replace('class="ic"', 'class="ic ic--flip"')}</span>`;
+
 export async function mount(el) {
+  const [main, ...more] = TOOLS;
   el.innerHTML = `
     <section class="home">
       <div class="home__hello">
         <h1 class="home__title">${greeting()}<br><span>O que vamos criar hoje?</span></h1>
       </div>
       <div class="home__tools">
-        ${TOOLS.map(
-          (t) => `
-          <a class="tool-tile" href="#/${t.route}">
-            ${t.art === 'cards' ? cardsArt() : ''}
-            <span class="tool-tile__body">
-              <span class="tool-tile__name">${t.name}</span>
-              <span class="tool-tile__text">${t.text}</span>
-              <span class="tool-tile__meta" data-meta="${t.route}"></span>
-              <span class="tool-tile__go">Começar ${icon('arrowLeft', { size: 20 }).replace('class="ic"', 'class="ic ic--flip"')}</span>
-            </span>
-          </a>`
-        ).join('')}
+        <a class="tool-tile" href="#/${main.route}">
+          ${art(main.art)}
+          <span class="tool-tile__body">
+            <span class="tool-tile__name">${main.name}</span>
+            <span class="tool-tile__text">${main.text}</span>
+            <span class="tool-tile__meta" data-meta="photo-cards"></span>
+            ${go('Começar')}
+          </span>
+        </a>
+        <div class="home__more">
+          ${more
+            .map(
+              (t, i) => `
+            <a class="tool-tile tool-tile--small tool-tile--${i}" href="#/${t.route}">
+              ${art(t.art)}
+              <span class="tool-tile__body">
+                <span class="tool-tile__name">${t.name}</span>
+                <span class="tool-tile__text">${t.text}</span>
+                ${t.meta ? `<span class="tool-tile__meta" data-meta="${t.meta}"></span>` : ''}
+                ${go('Abrir')}
+              </span>
+            </a>`
+            )
+            .join('')}
+        </div>
       </div>
     </section>`;
 
   try {
-    const cards = await db.allCards();
-    const total = cards.reduce((n, c) => n + (c.copies || 1), 0);
+    const all = await db.allCards();
+    const sheet = all.filter((c) => c.inSheet !== false);
+    const total = sheet.reduce((n, c) => n + (c.copies || 1), 0);
     const meta = el.querySelector('[data-meta="photo-cards"]');
-    if (meta && total > 0) meta.textContent = total === 1 ? '1 card esperando na folha' : `${total} cards esperando na folha`;
+    if (meta && total > 0) meta.textContent = total === 1 ? '1 coisa esperando na folha' : `${total} coisas esperando na folha`;
+    const saved = all.filter((c) => c.kind !== 'sticker').length;
+    const bm = el.querySelector('[data-meta="binder"]');
+    if (bm && saved) bm.textContent = saved === 1 ? '1 card guardado' : `${saved} cards guardados`;
+    const st = (await db.allStickers()).length;
+    const sm = el.querySelector('[data-meta="stickers"]');
+    if (sm && st) sm.textContent = st === 1 ? '1 adesivo' : `${st} adesivos`;
   } catch (_) {}
 }

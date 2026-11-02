@@ -2,12 +2,12 @@
 // Tocar escolhe; arrastar move; dois dedos (ou a rodinha) aumentam e giram.
 // A bolinha no canto de um texto ou adesivo também aumenta e gira, com um dedo ou o mouse.
 
-import { cardSize, cellRects, cellFor, coverScale, newDesign, isBgPhoto, BG_CELL, CARD } from './card.js';
+import { cardSize, cardRadius, unitOf, formatInfo, cellRects, cellFor, coverScale, newDesign, isBgPhoto, BG_CELL } from './card.js';
 import { drawSide, drawPhoto, layerBox, roundRectPath } from './render.js';
 
 const ZOOM_MIN = 0.25; // foto: em relação ao "preencher o espaço"
 const ZOOM_MAX = 8;
-const SIZE = { text: [2, 40], sticker: [3, 90] }; // mm
+const SIZE = { text: [2, 40], sticker: [3, 90], draw: [3, 200] }; // mm no photo card (cresce junto com o formato)
 const SNAP_DEG = 4;
 const SNAP_MM = 1.2;
 const HANDLE_R = 14; // px
@@ -26,6 +26,8 @@ export function createEditor(canvas, hooks = {}) {
   let rawLayerId = null; // foto mostrada sem efeitos e com xadrez atrás
   let guides = { v: false, h: false };
   let checkerPattern = null;
+  let drawPen = null; // modo desenho: { layerId, c, w, pen }
+  let drawing = null; // risco sendo feito: { id, st, last }
 
   const pointers = new Map();
   let gesture = null;
@@ -36,10 +38,10 @@ export function createEditor(canvas, hooks = {}) {
 
   // ---------- consultas ----------
   const side = () => design[sideName];
-  const cells = () => cellRects(side(), design.orientation);
+  const cells = () => cellRects(side(), design);
   const layerById = (id) => side().layers.find((l) => l.id === id) || null;
   const selectedLayer = () => (sel && sel.id ? layerById(sel.id) : null);
-  const cellOf = (layer) => cellFor(side(), design.orientation, layer.cell);
+  const cellOf = (layer) => cellFor(side(), design, layer.cell);
 
   function imgSize(layer) {
     const img = getImg(layer.imageKey);
@@ -58,7 +60,10 @@ export function createEditor(canvas, hooks = {}) {
     return Math.min(c * ZOOM_MAX, Math.max(c * ZOOM_MIN, s));
   }
 
-  const clampSize = (layer, s) => Math.min(SIZE[layer.type][1], Math.max(SIZE[layer.type][0], s));
+  const clampSize = (layer, s) => {
+    const [lo, hi] = SIZE[layer.type] || SIZE.sticker;
+    return Math.min(hi * unitOf(design), Math.max(lo, s));
+  };
 
   function snapRotation(deg) {
     const d = ((((deg + 180) % 360) + 360) % 360) - 180;
@@ -76,14 +81,14 @@ export function createEditor(canvas, hooks = {}) {
       canvas.width = Math.round(cw * dpr);
       canvas.height = Math.round(ch * dpr);
     }
-    const { w, h } = cardSize(design.orientation);
+    const { w, h } = cardSize(design);
     const pad = Math.max(28, Math.min(cw, ch) * 0.12);
     const k = Math.max(0.5, Math.min((cw - pad * 2) / w, (ch - pad * 2) / h));
     view = { cw, ch, k, cx: cw / 2, cy: ch / 2, dpr };
   }
 
   function cardRect() {
-    const { w, h } = cardSize(design.orientation);
+    const { w, h } = cardSize(design);
     return { left: view.cx - (w * view.k) / 2, top: view.cy - (h * view.k) / 2, w: w * view.k, h: h * view.k };
   }
 
@@ -124,7 +129,7 @@ export function createEditor(canvas, hooks = {}) {
     }
     // a foto de fundo só pega o toque onde não tem mais nada
     const bgp = ls.find((l) => isBgPhoto(l) && getImg(l.imageKey));
-    const { w, h } = cardSize(design.orientation);
+    const { w, h } = cardSize(design);
     if (bgp && Math.abs(m.x) <= w / 2 && Math.abs(m.y) <= h / 2) return bgp;
     return null;
   }
@@ -190,7 +195,7 @@ export function createEditor(canvas, hooks = {}) {
     ctx.shadowColor = 'rgba(122, 46, 84, 0.22)';
     ctx.shadowBlur = 22;
     ctx.shadowOffsetY = 8;
-    roundRectPath(ctx, r.left, r.top, r.w, r.h, CARD.radius * k);
+    roundRectPath(ctx, r.left, r.top, r.w, r.h, cardRadius(design) * k);
     ctx.fillStyle = '#fff';
     ctx.fill();
     ctx.restore();
@@ -207,7 +212,7 @@ export function createEditor(canvas, hooks = {}) {
 
     // Pontilhado de corte: é por aqui que a tesoura passa.
     ctx.save();
-    roundRectPath(ctx, r.left, r.top, r.w, r.h, CARD.radius * k);
+    roundRectPath(ctx, r.left, r.top, r.w, r.h, cardRadius(design) * k);
     ctx.lineWidth = 3;
     ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.stroke();
@@ -216,6 +221,17 @@ export function createEditor(canvas, hooks = {}) {
     ctx.strokeStyle = 'rgba(163, 33, 90, 0.9)';
     ctx.stroke();
     ctx.restore();
+
+    // Pôster: a impressora pode cortar um pouquinho da beirada; o importante fica dentro desta linha.
+    const safe = formatInfo(design.format).safe;
+    if (safe) {
+      ctx.save();
+      ctx.setLineDash([4, 5]);
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(91, 63, 158, 0.45)';
+      ctx.strokeRect(r.left + safe * k, r.top + safe * k, r.w - 2 * safe * k, r.h - 2 * safe * k);
+      ctx.restore();
+    }
 
     // linhas-guia do meio
     if (guides.v || guides.h) {
@@ -411,11 +427,25 @@ export function createEditor(canvas, hooks = {}) {
     }
   }
 
+  const r2 = (v) => Math.round(v * 100) / 100;
+
   canvas.addEventListener('pointerdown', (e) => {
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {
       /* alguns navegadores recusam; o gesto funciona igual */
+    }
+    if (drawPen) {
+      e.preventDefault();
+      if (drawing) return; // outro dedo (ou a mão) encostou: ignora
+      const layer = layerById(drawPen.layerId);
+      if (!layer) return;
+      const m = toMM(localPoint(e));
+      const st = { c: drawPen.c, w: drawPen.w, pen: drawPen.pen, pts: [r2(m.x), r2(m.y)] };
+      layer.strokes.push(st);
+      drawing = { id: e.pointerId, st, last: m };
+      changed();
+      return;
     }
     const p = localPoint(e);
     pointers.set(e.pointerId, p);
@@ -452,6 +482,20 @@ export function createEditor(canvas, hooks = {}) {
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (drawing && e.pointerId === drawing.id) {
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      let moved = false;
+      for (const ev of evs.length ? evs : [e]) {
+        const m = toMM(localPoint(ev));
+        if (Math.hypot(m.x - drawing.last.x, m.y - drawing.last.y) < 0.3 * Math.sqrt(unitOf(design))) continue;
+        drawing.st.pts.push(r2(m.x), r2(m.y));
+        drawing.last = m;
+        moved = true;
+      }
+      if (moved) changed();
+      return;
+    }
+    if (drawPen) return;
     if (!pointers.has(e.pointerId)) {
       // mouse passando por cima: mostra a mãozinha certa
       const p = localPoint(e);
@@ -497,6 +541,11 @@ export function createEditor(canvas, hooks = {}) {
   });
 
   function endPointer(e) {
+    if (drawing && e.pointerId === drawing.id) {
+      drawing = null;
+      commit();
+      return;
+    }
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
     if (pointers.size > 0) {
@@ -537,6 +586,7 @@ export function createEditor(canvas, hooks = {}) {
   canvas.addEventListener(
     'wheel',
     (e) => {
+      if (drawPen) return;
       const p = localPoint(e);
       const sl = selectedLayer();
       let layer = tapMode ? layerById(rawLayerId) : isBgPhoto(sl) ? sl : hitLayer(toMM(p)) || sl;
@@ -601,6 +651,34 @@ export function createEditor(canvas, hooks = {}) {
     layer.y *= f;
   }
 
+  // Muda formato e/ou orientação, levando fotos, textos, adesivos e desenhos junto.
+  function reshape(next) {
+    const prev = { format: design.format || 'card', orientation: design.orientation };
+    const old = cardSize(prev);
+    const nw = cardSize(next);
+    const ru = unitOf(next) / unitOf(prev);
+    for (const name of ['front', 'back']) {
+      const s = design[name];
+      const before = cellRects(s, prev);
+      const after = cellRects(s, next);
+      for (const l of s.layers) {
+        if (l.type === 'photo') {
+          if (l.cell === BG_CELL) rescalePhoto(l, cellFor(s, prev, BG_CELL), cellFor(s, next, BG_CELL));
+          else rescalePhoto(l, before[l.cell], after[l.cell]);
+        } else {
+          l.x *= nw.w / old.w;
+          l.y *= nw.h / old.h;
+          if (ru !== 1 && l.size) l.size *= ru;
+        }
+      }
+    }
+    design.format = next.format;
+    design.orientation = next.orientation;
+    layout();
+    changed();
+    commit();
+  }
+
   // ---------- API ----------
   const api = {
     get design() {
@@ -616,6 +694,10 @@ export function createEditor(canvas, hooks = {}) {
 
     load(d, { side: s = 'front' } = {}) {
       design = clone(d);
+      if (!design.format) design.format = 'card';
+      drawPen = null;
+      drawing = null;
+      canvas.classList.remove('is-draw-mode');
       sideName = s;
       sel = null;
       layout();
@@ -698,28 +780,30 @@ export function createEditor(canvas, hooks = {}) {
     },
 
     setOrientation(o) {
-      if (o === design.orientation) return;
-      const old = cardSize(design.orientation);
-      const nw = cardSize(o);
-      for (const name of ['front', 'back']) {
-        const s = design[name];
-        const before = cellRects(s, design.orientation);
-        const after = cellRects(s, o);
-        for (const l of s.layers) {
-          if (l.type === 'photo') {
-            if (l.cell === BG_CELL) rescalePhoto(l, cellFor(s, design.orientation, BG_CELL), cellFor(s, o, BG_CELL));
-            else rescalePhoto(l, before[l.cell], after[l.cell]);
-          } else {
-            l.x *= nw.w / old.w;
-            l.y *= nw.h / old.h;
-          }
-        }
-      }
-      design.orientation = o;
-      layout();
-      changed();
-      commit();
+      if (o === design.orientation || !formatInfo(design.format).rotate) return;
+      reshape({ format: design.format || 'card', orientation: o });
     },
+
+    // Troca o formato (photo card, mini, marcador, cartão, pôster). Tudo acompanha o tamanho novo.
+    setFormat(id) {
+      const f = formatInfo(id);
+      if (f.id === (design.format || 'card')) return;
+      reshape({ format: f.id, orientation: f.rotate ? design.orientation : 'portrait' });
+    },
+    unit: () => unitOf(design),
+
+    // Modo desenho: pen = { layerId, c, w, pen } (ou null para sair).
+    setDrawMode(pen) {
+      drawPen = pen ? { ...pen } : null;
+      drawing = null;
+      canvas.classList.toggle('is-draw-mode', !!drawPen);
+      if (drawPen) setSel(null);
+      redraw();
+    },
+    setPen(props) {
+      if (drawPen) Object.assign(drawPen, props);
+    },
+    isDrawing: () => !!drawPen,
 
     // Foto: zoom em relação a "preencher o espaço".
     getZoom(layer) {

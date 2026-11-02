@@ -21,7 +21,7 @@ export function cssFont(id, px) {
 
 // Espera as fontes usadas no card ficarem prontas (para o PDF e as miniaturas saírem certos).
 export async function ensureFonts(designs) {
-  const ids = new Set();
+  const ids = new Set(['fredoka', 'nunito']); // usadas nos adesivos com texto e no calendário
   for (const d of [].concat(designs)) {
     for (const s of [d.front, d.back]) for (const l of s.layers) if (l.type === 'text') ids.add(l.font);
   }

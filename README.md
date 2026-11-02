@@ -1,6 +1,18 @@
 # Aplicativo da Lavínia
 
-Um app fofo para a Lavínia criar coisas no PC ou no tablet. Por enquanto ele faz **photo cards**.
+Um app fofo para a Lavínia criar coisas no PC ou no tablet: **photo cards** (e mini polaroids, marcadores de página, cartões dobráveis e **pôsteres A4**), **adesivos** feitos das próprias fotos e um **fichário** com tudo o que ela já fez.
+
+## Formatos
+
+No topo do editor dá para escolher o que fazer (e trocar no meio, que tudo acompanha o tamanho novo):
+
+| Formato | Tamanho | Observação |
+| --- | --- | --- |
+| **Photo card** | 5,3 × 8,5 cm | em pé ou deitado; 9 por folha |
+| **Mini polaroid** | 5 × 6 cm | já começa com moldura polaroid; 12 por folha |
+| **Marcador de página** | 5 × 15 cm | |
+| **Cartão dobrável** | 9,5 × 13,3 cm fechado | "Capa" e "Dentro"; sai aberto na folha (capa à direita), com marquinhas para dobrar |
+| **Pôster A4** | 21 × 29,7 cm | ocupa a folha inteira; a linha roxa no editor mostra a margem segura |
 
 ## Photo cards
 
@@ -18,19 +30,33 @@ As ferramentas ficam em abas:
 | **Foto** | Escolher, colar ou arrastar a foto; tamanho, inclinar, girar, espelhar, encaixar e **tirar fundo**. |
 | **Efeitos** | Filtros prontos (Vivo, Rosado, Sonho, Vintage, Preto e branco…), brilho, contraste e cor, e **contorno** em volta da foto (branco ou de outra cor), como figurinha. |
 | **Texto** | Textos com 9 letras diferentes, tamanho, cor, contorno, sombra e alinhamento. |
-| **Adesivos** | 19 desenhos (coração, laço, coroa, borboleta, fita adesiva…) que mudam de cor, e emojis. |
+| **Adesivos** | Pacotes **Fofos**, **Idol** (lightstick, microfone, ingresso…), **Scrapbook** (fitas washi, clipe, tachinha, selo…) e **Balões** (balão de fala, pensamento, faixa, etiqueta… com texto que dá para mudar); **Meus** adesivos, emojis e **calendário** do mês. |
 | **Fundo** | **Foto de fundo** atrás de tudo (escolher, colar ou arrastar; enquanto mexe nela, só o fundo se mexe), cor lisa (ou qualquer outra cor), degradês e estampas (bolinhas, corações, estrelinhas, listras, xadrez, quadriculado). |
 | **Moldura** | Borda, Polaroid, borda dupla, costurinha, bolinhas, corações, xadrez e listras, na cor que quiser. |
 | **Colagem** | De nenhuma até 4 fotos no mesmo card; cada uma se mexe dentro do seu espaço. |
 | **Modelos** | Cards prontos (Polaroid, Idol, Aniversário, Figurinha, Verso fofo…): trocam fundo, moldura, textos e adesivos, e as fotos ficam. |
+| **Desenhar** | Desenho à mão (caneta, marca-texto ou neon), em 3 espessuras e qualquer cor. Cada desenho vira uma peça que se move, gira e aumenta. |
 | **Camadas** | Lista do que tem no card, para escolher, trazer para a frente, mandar para trás ou apagar. |
+
+Na aba **Foto** também tem:
+
+- **Foto solta**: a foto inteira por cima de tudo, com borda branca ou de polaroid e sombrinha (ótima para photo dump e mural).
+- **Virar adesivo**: guarda a foto (de preferência depois de "Tirar fundo") em **Meus adesivos**.
+- **Salvar sem fundo**: salva só a foto recortada, em PNG.
+
+Embaixo do editor:
+
+- **Salvar imagem**: salva o card em PNG (300 dpi), frente e verso. No tablet abre o "Compartilhar" (dá para salvar em Fotos).
+- **Fazer série**: escolhe várias fotos de uma vez e cria um card igual ao atual para cada uma, com numeração de coleção (01/09, 02/09…) na frente ou no verso, se quiser.
 
 **Tirar fundo:** apaga fundos de uma cor (ou quase), direto no aparelho e sem internet.
 Ao tocar em "Tirar fundo", o app descobre sozinho a cor da borda da foto e apaga o fundo ligado a ela.
 Tocar numa cor apaga aquela região. A barra "Força" apaga mais ou menos cores parecidas. A foto original fica guardada junto com o card.
 
-**Folha A4:** mostra onde cada card vai sair (9 por folha) e quantas cópias de cada um.
+**Folha A4:** mostra onde cada coisa vai sair e quantas cópias de cada uma. Cards, minis, marcadores, cartões e adesivos são **misturados na mesma folha** para gastar menos papel; cada pôster sai numa folha só dele.
 "Preparar folha para imprimir" gera um **PDF A4 em 300 dpi** com o pontilhado de corte (opcional), marcas nos cantos e uma régua de 5 cm no rodapé.
+"Salvar folha como imagem (JPG)" gera a mesma folha em **JPG** (uma imagem por página, 2480 × 3508 px).
+Na lista da folha, o botão de copiar **duplica** o card (para trocar só a foto) e a lixeira **tira da folha** (o card continua no fichário).
 
 - Na hora de imprimir, escolha **tamanho real / 100%** (não "ajustar à página").
 - Cards deitados saem girados na folha; depois de recortados ficam iguais.
@@ -39,6 +65,15 @@ Tocar numa cor apaga aquela região. A barra "Força" apaga mais ou menos cores 
 - Tudo fica guardado **no próprio aparelho** (o card que está sendo feito também).
   Ao tocar em outro card da folha, o card aberto é **salvo sozinho** antes de trocar (se for novo, vai para a folha).
   "Começar outro card" e "Cancelar edição" mostram um aviso com **Desfazer**, caso tenha sido sem querer. Cards feitos nas versões anteriores (inclusive com foto de fundo) continuam abrindo.
+
+## Meus adesivos
+
+Tela própria (no início, "Meus adesivos"): escolha uma foto, o fundo sai sozinho (dá para tocar no que sobrou), ponha contorno e toque em **Guardar adesivo**. Também dá para guardar uma imagem PNG pronta.
+Os adesivos aparecem em **Adesivos › Meus** em qualquer card e podem ir para a folha com **Pôr na folha**: lá dá para escolher o tamanho (2 a 15 cm) e quantos. Saem com borda branca e uma linha cinza para recortar; imprima em papel adesivo.
+
+## Meu fichário
+
+Tudo o que já foi para a folha fica guardado no fichário (páginas com bolsinhos, como um fichário de photo cards). Dá para marcar **favoritos**, criar **pastas**, pôr ou tirar da folha, salvar a imagem, duplicar, abrir para editar e apagar de vez.
 
 ## Nuvem (30 dias)
 
@@ -74,19 +109,25 @@ index.html            estrutura da página
 css/app.css           visual (cores, fontes, tamanhos)
 js/app.js             navegação entre telas
 js/views/home.js      tela inicial (lista das ferramentas)
-js/views/photocards.js  tela de photo cards
+js/views/photocards.js  editor (photo card, mini, marcador, cartão, pôster) e a folha
+js/views/stickers.js  meus adesivos (fazer figurinha de foto e pôr na folha)
+js/views/binder.js    meu fichário (favoritos e pastas)
+js/library.js         meus adesivos guardados no aparelho
+js/records.js         ajudantes para os cards guardados (duplicar, pastas…)
+js/export.js          salvar imagens (Compartilhar no tablet, baixar no computador)
+js/modal.js           janelinha por cima da tela
 js/cloud.js           cópia dos cards na nuvem (Supabase), por 30 dias
 js/views/pc-panels.js   abas de ferramentas (HTML de cada painel)
 js/editor.js          editor com seleção e gestos (arrastar, pinça, rodinha, bolinha de girar)
-js/card.js            medidas do card, molduras, colagens e formato dos dados
+js/card.js            formatos e medidas, molduras, colagens e formato dos dados
 js/render.js          desenho do card (o mesmo para tela, miniatura e impressão)
 js/fx.js              filtros, ajustes e contorno das fotos
-js/stickers.js        adesivos desenhados e emojis
+js/stickers.js        adesivos desenhados (em pacotes), emojis, imagens e calendário
 js/fonts.js           letras dos textos (arquivos em fonts/)
 js/templates.js       modelos prontos
 js/history.js         desfazer e refazer
-js/pdf.js             montagem da folha A4 com pontilhado, marcas de corte e verso
-js/db.js              armazenamento no aparelho (IndexedDB)
+js/pdf.js             montagem da folha A4 (PDF e JPG): mistura formatos, pontilhado, marcas de corte e verso
+js/db.js              armazenamento no aparelho (IndexedDB: cards, meus adesivos e ajustes)
 js/image.js           abrir e reduzir fotos grandes
 js/bg-remover.js      tirar fundo (lado da tela)
 js/bg-worker.js       tirar fundo (cálculo, roda separado para não travar)

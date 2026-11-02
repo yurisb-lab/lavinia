@@ -2,9 +2,10 @@
 // A mesma função desenha na tela, nas miniaturas e no PDF, então o que se vê é o que sai.
 
 import {
-  CARD,
   PX_PER_MM_PRINT,
   cardSize,
+  cardRadius,
+  unitOf,
   cellRects,
   BG_CELL,
   frameInfo,
@@ -14,7 +15,7 @@ import {
 } from './card.js';
 import { processPhoto } from './fx.js';
 import { cssFont } from './fonts.js';
-import { drawSticker } from './stickers.js';
+import { drawSticker, stickerBox } from './stickers.js';
 
 export const GRADIENTS = [
   { id: 'algodao', name: 'Algodão-doce', stops: ['#ffd1e3', '#d9c8ff'], angle: 160 },
@@ -157,7 +158,7 @@ export function bgBaseColor(bg) {
   return bg.color || '#ffffff';
 }
 
-function paintBg(ctx, bg, area, card, k, checker) {
+function paintBg(ctx, bg, area, card, k, checker, u = 1) {
   if (checker) {
     ctx.fillStyle = checker;
     ctx.fillRect(area.x, area.y, area.w, area.h);
@@ -178,15 +179,17 @@ function paintBg(ctx, bg, area, card, k, checker) {
   ctx.fillStyle = color;
   ctx.fillRect(area.x, area.y, area.w, area.h);
   if (bg.kind === 'pattern' && bg.pattern && bg.pattern !== 'none') {
-    drawPattern(ctx, bg.pattern, inkFor(color), area, card.x, card.y, k);
+    drawPattern(ctx, bg.pattern, inkFor(color), area, card.x, card.y, k * Math.sqrt(u));
   }
 }
 
-function paintFrame(ctx, frame, orientation, area, card, k) {
+function paintFrame(ctx, frame, design, area, card, k) {
   const info = frameInfo(frame.id);
   if (!info.inset) return;
-  const { w, h } = cardSize(orientation);
-  const win = frameWindow(frame, orientation);
+  const { w, h } = cardSize(design);
+  const win = frameWindow(frame, design);
+  const u = unitOf(design);
+  const ku = k * u;
   const color = frame.color || '#ffffff';
   const ink = frameInk(color);
   ctx.save();
@@ -199,20 +202,20 @@ function paintFrame(ctx, frame, orientation, area, card, k) {
   const id = frame.id;
   if (id === 'dots' || id === 'hearts' || id === 'checker' || id === 'stripes') {
     const map = { dots: 'dots', hearts: 'hearts', checker: 'checker', stripes: 'stripes' };
-    drawPattern(ctx, map[id], ink, area, card.x, card.y, k, true);
+    drawPattern(ctx, map[id], ink, area, card.x, card.y, ku, true);
   } else if (id === 'double') {
-    const o = 1.3;
+    const o = 1.3 * u;
     ctx.strokeStyle = ink;
-    ctx.lineWidth = 0.5 * k;
+    ctx.lineWidth = 0.5 * ku;
     roundRectPath(ctx, card.x + (win.x - o) * k, card.y + (win.y - o) * k, (win.w + 2 * o) * k, (win.h + 2 * o) * k, (win.r + o) * k);
     ctx.stroke();
   } else if (id === 'stitch') {
-    const o = info.inset / 2;
+    const o = (info.inset * u) / 2;
     ctx.strokeStyle = ink;
-    ctx.lineWidth = 0.55 * k;
+    ctx.lineWidth = 0.55 * ku;
     ctx.lineCap = 'round';
-    ctx.setLineDash([1.5 * k, 1.1 * k]);
-    roundRectPath(ctx, card.x + o * k, card.y + o * k, (w - 2 * o) * k, (h - 2 * o) * k, Math.max(0.5, CARD.radius - o + 1) * k);
+    ctx.setLineDash([1.5 * ku, 1.1 * ku]);
+    roundRectPath(ctx, card.x + o * k, card.y + o * k, (w - 2 * o) * k, (h - 2 * o) * k, Math.max(0.5 * u, cardRadius(design) - o + u) * k);
     ctx.stroke();
   }
   ctx.restore();
@@ -290,13 +293,78 @@ function drawText(ctx, layer, px, py, k) {
   ctx.restore();
 }
 
-// Caixa de uma camada de texto ou adesivo (mm, centro em relação ao centro do card).
+// ---------- desenho à mão ----------
+// Riscos suaves: curvas passando pelo meio de cada par de pontos.
+function strokePath(ctx, pts) {
+  ctx.beginPath();
+  if (pts.length <= 2) {
+    ctx.moveTo(pts[0], pts[1]);
+    ctx.lineTo(pts[0] + 0.01, pts[1]);
+    return;
+  }
+  ctx.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length - 2; i += 2) {
+    const mx = (pts[i] + pts[i + 2]) / 2;
+    const my = (pts[i + 1] + pts[i + 3]) / 2;
+    ctx.quadraticCurveTo(pts[i], pts[i + 1], mx, my);
+  }
+  ctx.lineTo(pts[pts.length - 2], pts[pts.length - 1]);
+}
+
+export const PENS = [
+  { id: 'pen', name: 'Caneta' },
+  { id: 'marker', name: 'Marca-texto' },
+  { id: 'glow', name: 'Neon' },
+];
+
+function drawStrokes(ctx, layer, px, py, k) {
+  const s = (layer.size / (layer.base || 1)) * k;
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate((layer.rotation * Math.PI) / 180);
+  ctx.scale(s, s);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const st of layer.strokes) {
+    if (!st.pts || st.pts.length < 2) continue;
+    ctx.save();
+    if (st.pen === 'marker') {
+      ctx.globalAlpha = 0.5;
+      ctx.lineCap = 'butt';
+    }
+    if (st.pen === 'glow') {
+      ctx.shadowColor = st.c;
+      ctx.shadowBlur = st.w * 1.6 * s;
+      strokePath(ctx, st.pts);
+      ctx.strokeStyle = st.c;
+      ctx.lineWidth = st.w;
+      ctx.stroke();
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = st.w * 0.4;
+      ctx.stroke();
+    } else {
+      strokePath(ctx, st.pts);
+      ctx.strokeStyle = st.c;
+      ctx.lineWidth = st.w;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// Caixa de uma camada de texto, adesivo ou desenho (mm, centro em relação ao centro do card).
 export function layerBox(layer) {
   if (layer.type === 'text') {
     const m = textMetrics(layer);
     return { w: m.w, h: m.h };
   }
-  return { w: layer.size, h: layer.size };
+  if (layer.type === 'draw') {
+    const f = layer.size / (layer.base || 1);
+    return { w: (layer.bw || 0) * f, h: (layer.bh || 0) * f };
+  }
+  return stickerBox(layer);
 }
 
 // ---------- espaço vazio ----------
@@ -351,7 +419,8 @@ function drawPlaceholder(ctx, x, y, w, h, r, k, style) {
 export function drawSide(ctx, design, sideName, getImg, opt) {
   const { left, top, k, bleed = 0, placeholders = null, checker = null, rawLayerId = null, maxSide = 1400 } = opt;
   const side = design[sideName];
-  const { w, h } = cardSize(design.orientation);
+  const { w, h } = cardSize(design);
+  const u = unitOf(design);
   const card = { x: left, y: top, w: w * k, h: h * k };
   const area = { x: left - bleed * k, y: top - bleed * k, w: (w + 2 * bleed) * k, h: (h + 2 * bleed) * k };
   const ccx = left + card.w / 2;
@@ -362,11 +431,11 @@ export function drawSide(ctx, design, sideName, getImg, opt) {
     ctx.beginPath();
     ctx.rect(area.x, area.y, area.w, area.h);
   } else {
-    roundRectPath(ctx, card.x, card.y, card.w, card.h, CARD.radius * k);
+    roundRectPath(ctx, card.x, card.y, card.w, card.h, cardRadius(design) * k);
   }
   ctx.clip();
 
-  paintBg(ctx, side.bg, area, card, k, checker);
+  paintBg(ctx, side.bg, area, card, k, checker, u);
 
   // foto de fundo: atrás da moldura e das outras fotos
   for (const layer of side.layers) {
@@ -375,9 +444,9 @@ export function drawSide(ctx, design, sideName, getImg, opt) {
     if (img) drawPhoto(ctx, img, layer, ccx, ccy, k, maxSide, layer.id === rawLayerId);
   }
 
-  paintFrame(ctx, side.frame, design.orientation, area, card, k);
+  paintFrame(ctx, side.frame, design, area, card, k);
 
-  const cells = cellRects(side, design.orientation);
+  const cells = cellRects(side, design);
   if (placeholders) {
     const used = new Set(side.layers.filter((l) => l.type === 'photo').map((l) => l.cell));
     cells.forEach((c, i) => {
@@ -399,7 +468,9 @@ export function drawSide(ctx, design, sideName, getImg, opt) {
     } else if (layer.type === 'text') {
       drawText(ctx, layer, ccx + layer.x * k, ccy + layer.y * k, k);
     } else if (layer.type === 'sticker') {
-      drawSticker(ctx, layer, ccx + layer.x * k, ccy + layer.y * k, k);
+      drawSticker(ctx, layer, ccx + layer.x * k, ccy + layer.y * k, k, getImg);
+    } else if (layer.type === 'draw') {
+      drawStrokes(ctx, layer, ccx + layer.x * k, ccy + layer.y * k, k);
     }
   }
   ctx.restore();
@@ -410,7 +481,7 @@ export function drawSide(ctx, design, sideName, getImg, opt) {
 // Cards deitados giram 90°: a frente no sentido do relógio e o verso ao contrário,
 // para os dois lados ficarem certos depois de recortados.
 export function renderForPrint(design, sideName, getImg, { bleed = 0, pxPerMm = PX_PER_MM_PRINT } = {}) {
-  const { w, h } = cardSize(design.orientation);
+  const { w, h } = cardSize(design);
   const src = document.createElement('canvas');
   src.width = Math.round((w + 2 * bleed) * pxPerMm);
   src.height = Math.round((h + 2 * bleed) * pxPerMm);
@@ -419,7 +490,7 @@ export function renderForPrint(design, sideName, getImg, { bleed = 0, pxPerMm = 
   sctx.fillStyle = '#ffffff';
   sctx.fillRect(0, 0, src.width, src.height);
   drawSide(sctx, design, sideName, getImg, { left: bleed * k, top: bleed * k, k, bleed, maxSide: Infinity });
-  if (design.orientation !== 'landscape') return src;
+  if (w <= h) return src;
 
   const out = document.createElement('canvas');
   out.width = src.height;
@@ -438,7 +509,7 @@ export function renderForPrint(design, sideName, getImg, { bleed = 0, pxPerMm = 
 
 // Miniatura na orientação do próprio card.
 export function renderThumb(design, sideName, getImg, longSide = 360, { placeholders = null } = {}) {
-  const { w, h } = cardSize(design.orientation);
+  const { w, h } = cardSize(design);
   const k = longSide / Math.max(w, h);
   const c = document.createElement('canvas');
   c.width = Math.round(w * k);
@@ -447,3 +518,15 @@ export function renderThumb(design, sideName, getImg, longSide = 360, { placehol
   drawSide(ctx, design, sideName, getImg, { left: 0, top: 0, k, placeholders, maxSide: Math.max(300, longSide * 2) });
   return c;
 }
+
+// Imagem pronta de um lado (para salvar no aparelho), na orientação do próprio card.
+// Os cantos arredondados ficam transparentes.
+export function renderImage(design, sideName, getImg, pxPerMm = PX_PER_MM_PRINT) {
+  const { w, h } = cardSize(design);
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * pxPerMm);
+  c.height = Math.round(h * pxPerMm);
+  drawSide(c.getContext('2d'), design, sideName, getImg, { left: 0, top: 0, k: c.width / w, maxSide: Infinity });
+  return c;
+}
+

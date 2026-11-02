@@ -5,9 +5,9 @@ import { icon } from '../icons.js';
 import { FRAMES, LAYOUTS, cardSize, isBgPhoto } from '../card.js';
 import { FONTS } from '../fonts.js';
 import { FILTERS } from '../fx.js';
-import { STICKERS, EMOJIS, stickerInfo } from '../stickers.js';
-import { GRADIENTS, PATTERNS, bgBaseColor } from '../render.js';
-import { TEMPLATES } from '../templates.js';
+import { STICKER_PACKS, EMOJIS, MONTHS, stickerInfo, hasInnerText } from '../stickers.js';
+import { GRADIENTS, PATTERNS, PENS, bgBaseColor } from '../render.js';
+import { templatesFor } from '../templates.js';
 
 export const PALETTE = [
   { c: '#ffffff', n: 'Branco' },
@@ -36,8 +36,16 @@ export const TABS = [
   { id: 'fundo', name: 'Fundo', icon: 'palette' },
   { id: 'moldura', name: 'Moldura', icon: 'frame' },
   { id: 'colagem', name: 'Colagem', icon: 'grid' },
+  { id: 'desenho', name: 'Desenhar', icon: 'pen' },
   { id: 'modelos', name: 'Modelos', icon: 'template' },
   { id: 'camadas', name: 'Camadas', icon: 'layers' },
+];
+
+// Espessuras da caneta (mm no photo card; crescem com o formato).
+export const PEN_SIZES = [
+  { id: 's', name: 'Fina', mm: 0.6 },
+  { id: 'm', name: 'Média', mm: 1.2 },
+  { id: 'l', name: 'Grossa', mm: 2.4 },
 ];
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -113,20 +121,29 @@ function fotoPanel(S) {
       </div>`;
   }
   const L = S.layer && S.layer.type === 'photo' ? S.layer : null;
+  const loose = section(
+    'Foto solta',
+    `<p class="psec__tip">Uma foto inteira que fica por cima e dá para pôr em qualquer lugar, tortinha, com borda de polaroid. Ótima para pôster e mural.</p>
+     <button type="button" class="btn btn--soft" data-act="loose-photo">${icon('photo', { size: 20 })}Pôr foto solta</button>`
+  );
   if (!L) {
     if (!S.cellsCount) {
-      return emptyNote(
-        'Este lado do card está sem espaço de foto. Escolha uma foto e ele ganha um, ou mude em <strong>Colagem</strong>.',
-        `<div class="pnote__row"><button type="button" class="btn btn--primary" data-act="pick">${icon('photo', { size: 22 })}Escolher foto</button>
-         <button type="button" class="btn btn--soft" data-act="paste">${icon('upload', { size: 20 })}Colar</button></div>`
+      return (
+        emptyNote(
+          'Este lado está sem espaço de foto. Escolha uma foto e ele ganha um, ou mude em <strong>Colagem</strong>.',
+          `<div class="pnote__row"><button type="button" class="btn btn--primary" data-act="pick">${icon('photo', { size: 22 })}Escolher foto</button>
+           <button type="button" class="btn btn--soft" data-act="paste">${icon('upload', { size: 20 })}Colar</button></div>`
+        ) + loose
       );
     }
-    return emptyNote(
-      S.cellsCount > 1
-        ? `${touch ? 'Toque' : 'Clique'} num espaço do card para escolher onde a foto vai, ou escolha agora e ela vai para o primeiro espaço vazio.`
-        : 'Escolha a foto do card.',
-      `<div class="pnote__row"><button type="button" class="btn btn--primary" data-act="pick">${icon('photo', { size: 22 })}Escolher foto</button>
-       <button type="button" class="btn btn--soft" data-act="paste">${icon('upload', { size: 20 })}Colar</button></div>`
+    return (
+      emptyNote(
+        S.cellsCount > 1
+          ? `${touch ? 'Toque' : 'Clique'} num espaço para escolher onde a foto vai, ou escolha agora e ela vai para o primeiro espaço vazio.`
+          : 'Escolha a foto.',
+        `<div class="pnote__row"><button type="button" class="btn btn--primary" data-act="pick">${icon('photo', { size: 22 })}Escolher foto</button>
+         <button type="button" class="btn btn--soft" data-act="paste">${icon('upload', { size: 20 })}Colar</button></div>`
+      ) + loose
     );
   }
   return `
@@ -139,7 +156,16 @@ function fotoPanel(S) {
       <button type="button" class="tool-btn tool-btn--magic" data-act="bg">${icon('wand', { size: 22 })}Tirar fundo</button>
       <button type="button" class="tool-btn" data-act="pick">${icon('photo', { size: 22 })}Trocar foto</button>
       <button type="button" class="tool-btn" data-act="paste">${icon('upload', { size: 22 })}Colar</button>
-    </div>`;
+    </div>
+    ${section(
+      'Guardar esta foto',
+      `<div class="tool-row">
+        <button type="button" class="tool-btn tool-btn--magic" data-act="to-sticker">${icon('sticker', { size: 22 })}Virar adesivo</button>
+        <button type="button" class="tool-btn" data-act="save-cutout">${icon('download', { size: 22 })}${L.originalKey ? 'Salvar sem fundo' : 'Salvar foto'}</button>
+      </div>
+      <p class="psec__tip">${L.originalKey ? '“Virar adesivo” guarda a figurinha (com contorno, se tiver) em <strong>Adesivos › Meus</strong>, para usar em outros cards e imprimir.' : 'Dica: use <strong>Tirar fundo</strong> antes, para o adesivo ficar só com o desenho da pessoa.'}</p>`
+    )}
+    ${loose}`;
 }
 
 function efeitosPanel(S) {
@@ -194,7 +220,7 @@ function textoPanel(S) {
         ).join('')}
       </div>`
     )}
-    ${slider({ label: 'Tamanho', ic: 'zoom', min: 2, max: 30, step: 0.5, value: L.size, prop: 'size' })}
+    ${slider({ label: 'Tamanho', ic: 'zoom', min: 2, max: Math.round(30 * S.unit), step: 0.5, value: L.size, prop: 'size' })}
     ${swatches('color', L.color, { label: 'Cor da letra' })}
     ${swatches('stroke.color', L.stroke.color, { label: 'Contorno', none: true })}
     <div class="psec__more" ${L.stroke.color ? '' : 'hidden'}>
@@ -214,32 +240,95 @@ function textoPanel(S) {
     </div>`;
 }
 
-function adesivosPanel(S) {
-  const L = S.layer && S.layer.type === 'sticker' ? S.layer : null;
-  let top = '';
-  if (L) {
-    const info = L.kind === 'shape' ? stickerInfo(L.name) : null;
-    top = section(
-      'Adesivo escolhido',
-      `${slider({ label: 'Tamanho', ic: 'zoom', min: 3, max: 60, step: 0.5, value: L.size, prop: 'size' })}
-       ${info && !info.fixed ? swatches('color', L.color, { label: 'Cor' }) : ''}`,
+function stickerSelected(S) {
+  const L = S.layer;
+  const u = S.unit;
+  const sizeMax = Math.round(60 * u);
+  if (L.kind === 'image') {
+    const isPhoto = L.frame && L.frame !== 'none';
+    return section(
+      isPhoto ? 'Foto solta escolhida' : 'Meu adesivo escolhido',
+      `${slider({ label: 'Tamanho', ic: 'zoom', min: 3, max: Math.round(90 * u), step: 0.5, value: L.size, prop: 'size' })}
+       <div class="chips" role="group" aria-label="Borda da foto">
+         ${[
+           ['none', 'Sem borda'],
+           ['white', 'Borda branca'],
+           ['polaroid', 'Polaroid'],
+         ]
+           .map(([v, n]) => `<button type="button" class="font-chip font-chip--sm" data-img-frame="${v}" aria-pressed="${(L.frame || 'none') === v}">${n}</button>`)
+           .join('')}
+       </div>
+       ${toggle('shadow', 'Sombrinha', L.shadow !== false && (L.shadow || isPhoto))}`,
       'psec--sel'
     );
   }
+  if (L.kind === 'calendar') {
+    const m = L.month == null ? new Date().getMonth() : L.month;
+    return section(
+      'Calendário escolhido',
+      `<div class="cal-nav">
+         <button type="button" class="round-btn" data-act="cal-prev" aria-label="Mês anterior">${icon('arrowLeft', { size: 18 })}</button>
+         <strong>${MONTHS[m]} ${L.year || new Date().getFullYear()}</strong>
+         <button type="button" class="round-btn" data-act="cal-next" aria-label="Próximo mês">${icon('arrowLeft', { size: 18 }).replace('class="ic"', 'class="ic ic--flip"')}</button>
+       </div>
+       ${slider({ label: 'Tamanho', ic: 'zoom', min: 10, max: Math.round(90 * u), step: 0.5, value: L.size, prop: 'size' })}
+       ${swatches('color', L.color, { label: 'Cor' })}`,
+      'psec--sel'
+    );
+  }
+  const info = L.kind === 'shape' ? stickerInfo(L.name) : null;
+  return section(
+    'Adesivo escolhido',
+    `${hasInnerText(L) ? `<label class="field"><span class="field__label">Texto do adesivo</span><textarea data-prop="text" rows="1" maxlength="40" spellcheck="false">${esc(L.text == null ? info.text.def : L.text)}</textarea></label>` : ''}
+     ${slider({ label: 'Tamanho', ic: 'zoom', min: 3, max: sizeMax, step: 0.5, value: L.size, prop: 'size' })}
+     ${info && !info.fixed ? swatches('color', L.color, { label: 'Cor' }) : ''}`,
+    'psec--sel'
+  );
+}
+
+function myStickers(S) {
+  const list = S.library || [];
+  const make = `<a class="btn btn--soft" href="#/adesivos">${icon('wand', { size: 20 })}Criar adesivo de uma foto</a>`;
+  if (!list.length) {
+    return `<div class="pnote">${icon('sticker', { size: 22 })}<p>Você ainda não tem adesivos seus. Faça um a partir de uma foto: escolha a foto, tire o fundo e toque em <strong>Virar adesivo</strong> (na aba Foto), ou use a tela <strong>Meus adesivos</strong>.</p><div class="pnote__row pnote__row--start">${make}</div></div>`;
+  }
+  return `
+    <div class="sticker-grid sticker-grid--mine">${list
+      .map((st) => `<button type="button" class="sticker-btn sticker-btn--mine" data-add-mine="${st.id}" aria-label="Meu adesivo"><img src="${st.url}" alt="" draggable="false"></button>`)
+      .join('')}</div>
+    <div class="pnote__row pnote__row--start">${make}</div>`;
+}
+
+function adesivosPanel(S) {
+  const L = S.layer && S.layer.type === 'sticker' ? S.layer : null;
+  const top = L ? stickerSelected(S) : '';
+  const packs = [{ id: 'meus', name: 'Meus' }, ...STICKER_PACKS, { id: 'emojis', name: 'Emojis' }, { id: 'extras', name: 'Calendário' }];
+  const cur = packs.some((p) => p.id === S.pack) ? S.pack : 'fofos';
+  let body;
+  if (cur === 'meus') body = myStickers(S);
+  else if (cur === 'emojis')
+    body = `<div class="sticker-grid sticker-grid--emoji">${EMOJIS.map(
+      (e) => `<button type="button" class="sticker-btn sticker-btn--emoji" data-add-emoji="${e}" aria-label="Emoji ${e}">${e}</button>`
+    ).join('')}</div>`;
+  else if (cur === 'extras')
+    body = `<p class="psec__tip">Um calendário do mês, para pôster, mural ou marcador. Depois de pôr, dá para trocar o mês e a cor.</p>
+      <button type="button" class="btn btn--soft" data-act="add-calendar">${icon('calendar', { size: 20 })}Pôr calendário</button>`;
+  else {
+    const pack = STICKER_PACKS.find((p) => p.id === cur);
+    body = `<div class="sticker-grid">${pack.items
+      .map((id) => {
+        const s = stickerInfo(id);
+        return `<button type="button" class="sticker-btn" data-add-sticker="${s.id}" aria-label="${s.name}" title="${s.name}"><span data-sticker-preview="${s.id}"></span></button>`;
+      })
+      .join('')}</div>
+      ${cur === 'baloes' ? '<p class="psec__tip">Depois de pôr, escreva o que quiser dentro do balão.</p>' : ''}`;
+  }
   return `
     ${top}
-    ${section(
-      'Desenhos',
-      `<div class="sticker-grid">${STICKERS.map(
-        (s) => `<button type="button" class="sticker-btn" data-add-sticker="${s.id}" aria-label="${s.name}" title="${s.name}"><span data-sticker-preview="${s.id}"></span></button>`
-      ).join('')}</div>`
-    )}
-    ${section(
-      'Emojis',
-      `<div class="sticker-grid sticker-grid--emoji">${EMOJIS.map(
-        (e) => `<button type="button" class="sticker-btn sticker-btn--emoji" data-add-emoji="${e}" aria-label="Emoji ${e}">${e}</button>`
-      ).join('')}</div>`
-    )}`;
+    <div class="packs" role="tablist" aria-label="Pacotes de adesivos">
+      ${packs.map((p) => `<button type="button" class="pack-btn" role="tab" aria-selected="${p.id === cur}" data-pack="${p.id}">${p.name}</button>`).join('')}
+    </div>
+    <div class="pack-body">${body}</div>`;
 }
 
 function fotoDeFundo(S) {
@@ -323,8 +412,8 @@ function molduraPanel(S) {
     ${fr.id !== 'none' ? swatches('@frame', fr.color, { label: 'Cor da moldura' }) : ''}`;
 }
 
-function layoutPreview(l, orientation) {
-  const { w, h } = cardSize(orientation);
+function layoutPreview(l, design) {
+  const { w, h } = cardSize(design);
   return `<span class="lay" style="aspect-ratio:${w}/${h}">${
     l.cells.length
       ? l.cells.map(([x, y, cw, ch]) => `<i style="left:${x * 100}%;top:${y * 100}%;width:${cw * 100}%;height:${ch * 100}%"></i>`).join('')
@@ -334,27 +423,70 @@ function layoutPreview(l, orientation) {
 
 function colagemPanel(S) {
   return `
-    <div class="frame-grid">${LAYOUTS.map(
-      (l) =>
-        `<button type="button" class="frame-btn" data-layout="${l.id}" aria-pressed="${S.side.layout === l.id}" title="${l.name}">${layoutPreview(l, S.design.orientation)}<span>${l.name}</span></button>`
-    ).join('')}</div>
+    <div class="frame-grid">${LAYOUTS.filter((l) => !l.big || S.design.format === 'poster' || S.side.layout === l.id)
+      .map(
+        (l) =>
+          `<button type="button" class="frame-btn" data-layout="${l.id}" aria-pressed="${S.side.layout === l.id}" title="${l.name}">${layoutPreview(l, S.design)}<span>${l.name}</span></button>`
+      )
+      .join('')}</div>
     <p class="psec__tip">${S.isTouch ? 'Toque' : 'Clique'} num espaço vazio do card para colocar a foto dele. Cada foto se mexe sozinha dentro do seu espaço.</p>`;
 }
 
-function modelosPanel() {
+function desenhoPanel(S) {
+  const D = S.draw;
+  const L = S.layer && S.layer.type === 'draw' ? S.layer : null;
+  if (D.active) {
+    return `
+      <div class="bg-panel draw-panel">
+        <div class="bg-panel__head">
+          <p class="bg-panel__title">${icon('pen', { size: 22 })}Desenhando</p>
+          <p class="bg-panel__help">Desenhe com o dedo${S.isTouch ? ' ou a caneta' : ' ou o mouse'} em cima do card. Quando terminar, toque em <strong>Pronto</strong>: o desenho vira uma peça que dá para mover, girar e aumentar.</p>
+        </div>
+        <div class="chips" role="group" aria-label="Caneta">
+          ${PENS.map((p) => `<button type="button" class="font-chip font-chip--sm" data-pen="${p.id}" aria-pressed="${D.pen === p.id}">${p.name}</button>`).join('')}
+        </div>
+        <div class="chips" role="group" aria-label="Espessura">
+          ${PEN_SIZES.map((p) => `<button type="button" class="pen-size" data-pen-size="${p.id}" aria-pressed="${D.size === p.id}" aria-label="${p.name}" title="${p.name}"><i style="--d:${6 + PEN_SIZES.indexOf(p) * 6}px"></i></button>`).join('')}
+        </div>
+        ${swatches('@pen', D.color, { label: 'Cor' })}
+        <div class="bg-panel__row">
+          <button type="button" class="tool-btn" data-act="undo" ${S.canUndo ? '' : 'disabled'}>${icon('undo', { size: 22 })}Desfazer risco</button>
+        </div>
+        <button type="button" class="btn btn--primary" data-act="draw-done">${icon('check', { size: 22 })}Pronto</button>
+      </div>`;
+  }
+  const sel = L
+    ? section(
+        'Desenho escolhido',
+        `${slider({ label: 'Tamanho', ic: 'zoom', min: 3, max: Math.round(200 * S.unit), step: 0.5, value: Math.round(L.size * 2) / 2, prop: 'size' })}
+         ${swatches('@draw', (L.strokes[0] && L.strokes[0].c) || null, { label: 'Pintar o desenho todo' })}`,
+        'psec--sel'
+      )
+    : '';
   return `
-    <div class="tpl-grid">${TEMPLATES.map(
+    ${sel}
+    <button type="button" class="btn btn--primary btn--wide" data-act="draw-start">${icon('pen', { size: 22 })}${L ? 'Fazer outro desenho' : 'Começar a desenhar'}</button>
+    <p class="psec__tip">Rabiscos, assinatura, corações… Escolha a caneta (Caneta, Marca-texto ou Neon), a espessura e a cor. Cada vez que você desenha, o desenho vira uma peça do card.</p>`;
+}
+
+function modelosPanel(S) {
+  return `
+    <div class="tpl-grid">${templatesFor(S.design.format).map(
       (t) => `<button type="button" class="tpl-btn" data-template="${t.id}"><span data-template-preview="${t.id}"></span><span>${t.name}</span></button>`
     ).join('')}</div>
-    <p class="psec__tip">O modelo troca o fundo, a moldura, os textos e os adesivos deste lado do card. As fotos ficam. Se não gostar, é só desfazer.</p>`;
+    <p class="psec__tip">O modelo troca o fundo, a moldura, os textos e os adesivos deste lado. As fotos ficam. Se não gostar, é só desfazer.</p>`;
 }
 
 export function layerLabel(l, i, photos) {
   if (isBgPhoto(l)) return { ic: 'photo', text: 'Foto de fundo' };
   if (l.type === 'photo') return { ic: 'photo', text: photos > 1 ? `Foto ${l.cell + 1}` : 'Foto' };
   if (l.type === 'text') return { ic: 'text', text: `“${(l.text || '').replace(/\s+/g, ' ').trim().slice(0, 22) || 'texto'}”` };
+  if (l.type === 'draw') return { ic: 'pen', text: 'Desenho' };
   if (l.kind === 'emoji') return { ic: null, emoji: l.name, text: 'Emoji' };
-  return { ic: 'sticker', text: stickerInfo(l.name).name };
+  if (l.kind === 'image') return { ic: 'photo', text: l.frame && l.frame !== 'none' ? 'Foto solta' : 'Meu adesivo' };
+  if (l.kind === 'calendar') return { ic: 'calendar', text: 'Calendário' };
+  const info = stickerInfo(l.name);
+  return { ic: 'sticker', text: hasInnerText(l) ? `${info.name} “${String(l.text == null ? info.text.def : l.text).slice(0, 14)}”` : info.name };
 }
 
 function camadasPanel(S) {
@@ -396,6 +528,8 @@ export function panelHtml(tab, S) {
       return molduraPanel(S);
     case 'colagem':
       return colagemPanel(S);
+    case 'desenho':
+      return desenhoPanel(S);
     case 'modelos':
       return modelosPanel(S);
     case 'camadas':
