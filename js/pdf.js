@@ -1,17 +1,22 @@
-// Monta a folha A4 com os cards em tamanho real e as marcas de corte.
+// Monta a folha A4 com os cards em tamanho real, o pontilhado de corte e as marcas nos cantos.
+// Se algum card tiver verso, cada folha ganha uma página de verso logo depois, espelhada,
+// para imprimir frente e verso virando o papel pela borda comprida.
 
-import { CARD, renderForPrint } from './card.js';
+import { CARD, sideHasContent } from './card.js';
+import { renderForPrint } from './render.js';
+import { ensureFonts } from './fonts.js';
 
 export const SHEET = {
   pageW: 210, // A4 em mm
   pageH: 297,
   cols: 3,
   rows: 3,
-  slotW: CARD.short, // na folha todo card fica em pé: 54 x 86 mm
+  slotW: CARD.short, // na folha todo card fica em pé: 53 x 85 mm
   slotH: CARD.long,
   gap: 5, // mm entre um card e outro, onde ficam as marcas de corte
-  markOffset: 1, // mm de folga entre o card e a marca
-  markLength: 3, // mm (termina 1 mm antes do card vizinho)
+  markOffset: 1.5, // mm de folga entre o card e a marca
+  markLength: 2, // mm
+  backBleed: 1, // mm: o verso sai um pouco maior, para não sobrar branco se a impressora deslocar
 };
 
 export const PER_PAGE = SHEET.cols * SHEET.rows;
@@ -39,6 +44,8 @@ export function paginate(cards) {
   for (let i = 0; i < flat.length; i += PER_PAGE) pages.push(flat.slice(i, i + PER_PAGE));
   return pages;
 }
+
+export const hasBack = (card) => !!(card.design && sideHasContent(card.design.back));
 
 let jsPdfPromise = null;
 function loadJsPdf() {
@@ -74,6 +81,16 @@ function cropMarks(doc, x, y, w, h) {
   for (const [x1, y1, x2, y2] of lines) doc.line(x1, y1, x2, y2);
 }
 
+// Pontilhado bem rente ao card, por fora: cortando por ele, não sobra linha no card.
+function cutLine(doc, x, y, w, h) {
+  const o = 0.12;
+  doc.setDrawColor(150);
+  doc.setLineWidth(0.2);
+  doc.setLineDashPattern([0.9, 0.7], 0);
+  doc.roundedRect(x - o, y - o, w + 2 * o, h + 2 * o, CARD.radius + o, CARD.radius + o, 'S');
+  doc.setLineDashPattern([], 0);
+}
+
 function ruler(doc, x, y) {
   // Régua de 5 cm para conferir se a impressora não mudou o tamanho.
   doc.setDrawColor(90);
@@ -88,38 +105,41 @@ function ruler(doc, x, y) {
   doc.text('5 cm', x + 52, y);
 }
 
-// cards: [{ id, copies, design, img, bgImg? }]; options: { cutLine }
-export async function buildPdf(cards, { cutLine = true, onProgress } = {}) {
+// cards: [{ id, copies, design, getImg }]; options: { cutLine }
+export async function buildPdf(cards, { cutLine: withCutLine = true, onProgress } = {}) {
   const { jsPDF } = await loadJsPdf();
+  await ensureFonts(cards.map((c) => c.design));
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
   const pages = paginate(cards);
   const slots = slotPositions();
   const rendered = new Map();
+  const total = new Set(pages.flat().map((c) => c.id)).size + new Set(pages.flat().filter(hasBack).map((c) => c.id)).size;
   let done = 0;
-  const unique = new Set(pages.flat().map((c) => c.id)).size;
+  const anyBack = cards.some(hasBack);
 
+  async function image(card, sideName) {
+    const key = `${sideName}-${card.id}`;
+    if (!rendered.has(key)) {
+      const canvas = renderForPrint(card.design, sideName, card.getImg, { bleed: sideName === 'back' ? SHEET.backBleed : 0 });
+      rendered.set(key, canvas.toDataURL('image/jpeg', 0.92));
+      done++;
+      onProgress && onProgress(done / total);
+      await new Promise((r) => setTimeout(r, 0)); // deixa a tela respirar no tablet
+    }
+    return { data: rendered.get(key), alias: 'card-' + key };
+  }
+
+  let pageNo = 0;
   for (let p = 0; p < pages.length; p++) {
-    if (p > 0) doc.addPage('a4', 'portrait');
     const page = pages[p];
+    if (pageNo++ > 0) doc.addPage('a4', 'portrait');
 
     for (let i = 0; i < page.length; i++) {
-      const card = page[i];
       const { x, y } = slots[i];
-      if (!rendered.has(card.id)) {
-        const canvas = renderForPrint(card.img, card.design, card.bgImg);
-        rendered.set(card.id, canvas.toDataURL('image/jpeg', 0.92));
-        done++;
-        onProgress && onProgress(done / unique);
-        await new Promise((r) => setTimeout(r, 0)); // deixa a tela respirar no tablet
-      }
+      const im = await image(page[i], 'front');
       // O apelido faz o PDF guardar a imagem uma vez só, mesmo com várias cópias.
-      doc.addImage(rendered.get(card.id), 'JPEG', x, y, SHEET.slotW, SHEET.slotH, 'card-' + card.id, 'NONE');
-
-      if (cutLine) {
-        doc.setDrawColor(185);
-        doc.setLineWidth(0.12);
-        doc.roundedRect(x, y, SHEET.slotW, SHEET.slotH, CARD.radius, CARD.radius, 'S');
-      }
+      doc.addImage(im.data, 'JPEG', x, y, SHEET.slotW, SHEET.slotH, im.alias, 'NONE');
+      if (withCutLine) cutLine(doc, x, y, SHEET.slotW, SHEET.slotH);
     }
 
     doc.setDrawColor(0);
@@ -131,11 +151,28 @@ export async function buildPdf(cards, { cutLine = true, onProgress } = {}) {
     doc.setFontSize(7);
     doc.setTextColor(120);
     doc.text(
-      `Photo cards da Lavínia  ·  folha ${p + 1} de ${pages.length}  ·  imprima em tamanho real (100%)`,
+      `Photo cards da Lavínia  ·  folha ${p + 1} de ${pages.length}${anyBack ? ' (frente)' : ''}  ·  imprima em tamanho real (100%)`,
       SHEET.pageW - 14,
       footerY,
       { align: 'right' }
     );
+
+    // Verso: mesma folha, espelhada da esquerda para a direita.
+    if (page.some(hasBack)) {
+      doc.addPage('a4', 'portrait');
+      pageNo++;
+      const b = SHEET.backBleed;
+      for (let i = 0; i < page.length; i++) {
+        if (!hasBack(page[i])) continue;
+        const { x, y } = slots[i];
+        const mx = SHEET.pageW - x - SHEET.slotW;
+        const im = await image(page[i], 'back');
+        doc.addImage(im.data, 'JPEG', mx - b, y - b, SHEET.slotW + 2 * b, SHEET.slotH + 2 * b, im.alias, 'NONE');
+      }
+      doc.setFontSize(7);
+      doc.setTextColor(120);
+      doc.text(`Verso da folha ${p + 1}  ·  vire o papel pela borda comprida`, SHEET.pageW / 2, SHEET.pageH - 6, { align: 'center' });
+    }
   }
   return doc;
 }
