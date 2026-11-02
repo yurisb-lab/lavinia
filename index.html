@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Aplicativo da Lavínia</title>
+  <meta name="description" content="Aplicativo da Lavínia: crie photo cards e imprima em folha A4 com marcas de corte.">
+  <meta name="theme-color" content="#ffe3ef">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Lavínia">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/" aria-label="Aplicativo da Lavínia, ir para o início">
+      <span class="brand__badge" aria-hidden="true">
+        <svg viewBox="0 0 48 48" width="44" height="44"><rect x="12" y="5" width="24" height="38" rx="5" fill="#fff" stroke="#c92f6c" stroke-width="3"/><path d="M24 33s-7-4.3-7-9.2a3.9 3.9 0 0 1 7-2.4 3.9 3.9 0 0 1 7 2.4c0 4.9-7 9.2-7 9.2z" fill="#ff7aa8"/><path d="M33.5 7.5c.4 2.9 1.6 4.1 4.5 4.5-2.9.4-4.1 1.6-4.5 4.5-.4-2.9-1.6-4.1-4.5-4.5 2.9-.4 4.1-1.6 4.5-4.5z" fill="#ffc94d"/></svg>
+      </span>
+      <span class="brand__text">Aplicativo da <span class="brand__name">Lavínia</span></span>
+    </a>
+    <a class="home-link" href="#/">
+      <svg class="ic" aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 5l8 6.5"/><path d="M6.5 10v9.5h11V10"/><path d="M10 19.5v-5h4v5"/></svg>
+      Início
+    </a>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <noscript><p class="noscript">Para usar o aplicativo, ative o JavaScript do navegador.</p></noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
