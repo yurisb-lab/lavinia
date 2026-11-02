@@ -1896,6 +1896,151 @@ span.slot {
   gap: var(--s2);
 }
 
+/* Guardados na nuvem */
+.cloud {
+  border-top: 2px dashed var(--pink-line);
+  padding-top: var(--s3);
+}
+
+.cloud__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  min-height: 48px;
+  padding: var(--s2);
+  border-radius: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.cloud__head::-webkit-details-marker {
+  display: none;
+}
+
+.cloud__head:hover {
+  background: var(--pink-soft);
+}
+
+.cloud__head:focus-visible {
+  outline: 3px solid var(--berry);
+  outline-offset: 2px;
+}
+
+.cloud__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.cloud__title::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-left: 2px;
+  border-right: 2.5px solid currentColor;
+  border-bottom: 2.5px solid currentColor;
+  transform: rotate(45deg) translateY(-3px);
+  transition: transform 0.2s var(--ease-out);
+}
+
+.cloud[open] .cloud__title::after {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.cloud__status {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+
+.cloud__status[data-state='error'],
+.cloud__status[data-state='offline'] {
+  color: var(--danger);
+}
+
+.cloud__tip {
+  margin: var(--s1) var(--s2) var(--s3);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.cloud__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--s3);
+}
+
+.cloud__empty {
+  grid-column: 1 / -1;
+  padding: var(--s4);
+  border-radius: 18px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cloud__card {
+  display: grid;
+  justify-items: center;
+  gap: var(--s1);
+  width: 100%;
+  padding: var(--s2);
+  border: 0;
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cloud__card:hover:not(:disabled) {
+  background: var(--pink-soft);
+}
+
+.cloud__card:focus-visible {
+  outline: 3px solid var(--berry);
+  outline-offset: 2px;
+}
+
+.cloud__card.is-busy {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.cloud__thumb {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 92px;
+}
+
+.cloud__thumb img {
+  max-width: 72px;
+  max-height: 92px;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px -2px rgba(67, 32, 58, 0.4);
+}
+
+.cloud__days {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+
+.cloud__card .tag {
+  margin: 0;
+}
+
 .print-box {
   display: grid;
   gap: var(--s3);

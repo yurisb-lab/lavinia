@@ -28,6 +28,7 @@ import { buildPdf, paginate, slotPositions, SHEET, PER_PAGE, hasBack } from '../
 import { icon } from '../icons.js';
 import { createBgRemover } from '../bg-remover.js';
 import { toast } from '../toast.js';
+import { cloudEnabled, queueCard, syncCloud, onCloudChange, listCloud, fetchCloudCard, daysText, KEEP_DAYS } from '../cloud.js';
 import { TABS, panelHtml, layerLabel } from './pc-panels.js';
 
 export const title = 'Photo cards';
@@ -123,6 +124,15 @@ function template() {
       </div>
       <div class="pages" data-pages></div>
       <ul class="card-list" data-list></ul>
+
+      <details class="cloud" data-cloud${cloudEnabled ? '' : ' hidden'}>
+        <summary class="cloud__head">
+          <span class="cloud__title">${icon('cloud', { size: 22 })}Guardados na nuvem</span>
+          <span class="cloud__status" data-cloud-status></span>
+        </summary>
+        <p class="cloud__tip">Cada card salvo fica guardado aqui por ${KEEP_DAYS} dias, mesmo se for apagado da folha. Toque num card para trazer ele de volta.</p>
+        <ul class="cloud__grid" data-cloud-list></ul>
+      </details>
 
       <div class="print-box">
         <label class="check">
@@ -1027,6 +1037,7 @@ export async function mount(root) {
     }
     $('[data-act="print"]').disabled = !cards.length;
     $('[data-duplex-tip]').hidden = !cards.some(hasBack);
+    if (cloudList) renderCloud();
   }
 
   // Grava o card do editor na folha: novo, ou por cima do card que está sendo editado.
@@ -1047,6 +1058,7 @@ export async function mount(root) {
     };
     await db.putCard(record);
     await loadCards();
+    queueCard(record.id).catch(() => {});
     return record;
   }
 
@@ -1174,6 +1186,88 @@ export async function mount(root) {
       },
     });
   }
+
+  // ---------- nuvem ----------
+  const CLOUD_STATUS = {
+    idle: 'Tudo guardado',
+    syncing: 'Guardando…',
+    offline: 'Sem internet: guardo depois',
+    error: 'Não deu para guardar agora',
+    off: '',
+  };
+  let cloudList = null; // null = ainda não carregou
+  let cloudLoading = false;
+
+  const stopCloud = onCloudChange(({ state, pending, uploaded }) => {
+    const el = $('[data-cloud-status]');
+    if (!el) return;
+    el.textContent = state === 'syncing' && pending > 1 ? `Guardando ${pending} cards…` : CLOUD_STATUS[state] || '';
+    el.dataset.state = state;
+    if (uploaded && $('[data-cloud]').open) loadCloud();
+  });
+
+  async function loadCloud() {
+    if (cloudLoading) return;
+    cloudLoading = true;
+    const ul = $('[data-cloud-list]');
+    if (cloudList === null) ul.innerHTML = '<li class="cloud__empty">Abrindo a nuvem…</li>';
+    try {
+      cloudList = await listCloud();
+      if (alive) renderCloud();
+    } catch (err) {
+      console.warn(err);
+      if (alive && cloudList === null) ul.innerHTML = '<li class="cloud__empty">Não consegui abrir a nuvem agora. Confira a internet e tente de novo.</li>';
+    } finally {
+      cloudLoading = false;
+    }
+  }
+
+  function renderCloud() {
+    const ul = $('[data-cloud-list]');
+    if (!cloudList || !cloudList.length) {
+      ul.innerHTML = '<li class="cloud__empty">Nenhum card na nuvem ainda. Quando você colocar um card na folha, ele também vem para cá.</li>';
+      return;
+    }
+    ul.innerHTML = cloudList
+      .map((c) => {
+        const here = cards.some((x) => x.id === c.id);
+        const img = c.thumbUrl ? `<img class="${c.orientation === 'landscape' ? 'is-landscape' : ''}" src="${c.thumbUrl}" alt="" loading="lazy" draggable="false">` : '';
+        return `<li><button type="button" class="cloud__card" data-cloud-open="${c.id}" aria-label="${here ? 'Abrir este card' : 'Trazer este card de volta para a folha'}, ${daysText(c.daysLeft)}">
+          <span class="cloud__thumb">${img}</span>
+          <span class="cloud__days">${daysText(c.daysLeft)}</span>
+          ${here ? '<span class="tag">na folha</span>' : ''}
+        </button></li>`;
+      })
+      .join('');
+  }
+
+  async function openCloudCard(id, btn) {
+    if (busy) return;
+    if (cards.some((c) => c.id === id)) return editCard(id);
+    const img = btn.querySelector('img');
+    const from = (img || btn).getBoundingClientRect();
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    try {
+      const rec = await fetchCloudCard(id);
+      await db.putCard(rec);
+      await loadCards();
+      renderSheet();
+      renderCloud();
+      if (from.width) flyToSheet(rec.id, from);
+      toast('Card de volta na folha!');
+    } catch (err) {
+      console.warn(err);
+      toast('Não consegui trazer esse card da nuvem. Tente de novo.', { kind: 'error' });
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('is-busy');
+    }
+  }
+
+  $('[data-cloud]').addEventListener('toggle', (e) => {
+    if (e.target.open) loadCloud();
+  });
 
   // ---------- impressão ----------
   function invalidatePdf() {
@@ -1355,6 +1449,7 @@ export async function mount(root) {
     if (ds.layerMove) return moveLayer(ds.id, +ds.layerMove);
     if (ds.layerDel) return deleteLayer(ds.layerDel);
     if (ds.edit) return editCard(ds.edit);
+    if (ds.cloudOpen) return openCloudCard(ds.cloudOpen, t);
     if (ds.del) return deleteCard(ds.del);
     if (ds.copies) return changeCopies(ds.id, +ds.copies);
   });
@@ -1432,6 +1527,7 @@ export async function mount(root) {
   renderPanel(true);
   await restoreDraft();
   renderSheet();
+  syncCloud();
   loadFonts().then(() => {
     if (!alive) return;
     editor.redraw();
@@ -1440,6 +1536,7 @@ export async function mount(root) {
 
   return () => {
     alive = false;
+    stopCloud();
     clearTimeout(draftTimer);
     clearTimeout(textTimer);
     if (bg.active) cancelBg();

@@ -40,6 +40,21 @@ Tocar numa cor apaga aquela região. A barra "Força" apaga mais ou menos cores 
   Ao tocar em outro card da folha, o card aberto é **salvo sozinho** antes de trocar (se for novo, vai para a folha).
   "Começar outro card" e "Cancelar edição" mostram um aviso com **Desfazer**, caso tenha sido sem querer. Cards feitos nas versões anteriores (inclusive com foto de fundo) continuam abrindo.
 
+## Nuvem (30 dias)
+
+Cada card colocado na folha (ou salvo) também ganha uma cópia na nuvem, no **Supabase** (projeto `lavinia`).
+A cópia fica guardada por **30 dias** depois da última vez que o card foi salvo, mesmo se for apagado da folha.
+Na seção **Guardados na nuvem**, embaixo da lista de cards, toque num card para trazer ele de volta.
+
+- Não precisa de login: cada aparelho ganha sozinho uma conta anônima e só vê os próprios cards.
+  Limpar os dados do navegador faz o aparelho perder o acesso aos cards antigos na nuvem.
+- Sem internet, o card fica numa fila e sobe quando a internet voltar.
+- Para cada card vão `front.png` e `back.png` (o card pronto), `project.json` e as fotos usadas, para dar para editar de novo.
+- Os arquivos ficam numa pasta privada (`cards`) e as regras do banco não deixam um aparelho ver os cards de outro.
+- Uma função (`limpar-cards`) roda todo dia às 3h17 (Brasília) e apaga o que passou dos 30 dias.
+- Endereço e chave pública ficam em `js/cloud-config.js`. Deixe `url` vazio para desligar a nuvem.
+- No painel do Supabase, **Authentication → Sign In / Providers → Allow anonymous sign-ins** precisa estar ligado.
+
 ## Como usar
 
 É um site estático: não precisa instalar nada nem compilar. Para publicar:
@@ -60,6 +75,7 @@ css/app.css           visual (cores, fontes, tamanhos)
 js/app.js             navegação entre telas
 js/views/home.js      tela inicial (lista das ferramentas)
 js/views/photocards.js  tela de photo cards
+js/cloud.js           cópia dos cards na nuvem (Supabase), por 30 dias
 js/views/pc-panels.js   abas de ferramentas (HTML de cada painel)
 js/editor.js          editor com seleção e gestos (arrastar, pinça, rodinha, bolinha de girar)
 js/card.js            medidas do card, molduras, colagens e formato dos dados

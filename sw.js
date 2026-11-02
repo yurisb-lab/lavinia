@@ -11,6 +11,8 @@ const APP_FILES = [
   'js/bg-remover.js',
   'js/bg-worker.js',
   'js/card.js',
+  'js/cloud.js',
+  'js/cloud-config.js',
   'js/db.js',
   'js/editor.js',
   'js/fonts.js',
