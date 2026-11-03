@@ -19,7 +19,7 @@ const IMAGE_PX = 1004; // lado maior da imagem pronta: 8,5 cm a 300 dpi
 export const cloudEnabled = !!(CLOUD.url && CLOUD.key);
 
 // ---------- conversa com o Supabase ----------
-async function call(path, { method = 'GET', token, headers = {}, body, json } = {}) {
+export async function call(path, { method = 'GET', token, headers = {}, body, json } = {}) {
   const h = { apikey: CLOUD.key, ...headers };
   if (token) h.Authorization = `Bearer ${token}`;
   if (json !== undefined) {
@@ -31,12 +31,13 @@ async function call(path, { method = 'GET', token, headers = {}, body, json } = 
     const text = await res.text().catch(() => '');
     const err = new Error(`nuvem ${res.status}: ${text.slice(0, 200)}`);
     err.status = res.status;
+    err.body = text;
     throw err;
   }
   return res;
 }
 
-const objPath = (path) => path.split('/').map(encodeURIComponent).join('/');
+export const objPath = (path) => path.split('/').map(encodeURIComponent).join('/');
 
 // ---------- conta anônima do aparelho ----------
 let session = null;
@@ -44,7 +45,7 @@ let authing = null;
 
 const fresh = (s) => s && s.access_token && s.expires_at * 1000 > Date.now() + 60_000;
 
-async function getSession() {
+export async function getSession() {
   if (fresh(session)) return session;
   if (!authing) authing = signIn().finally(() => (authing = null));
   return authing;

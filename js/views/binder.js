@@ -8,6 +8,8 @@ import { formatInfo, sideHasContent } from '../card.js';
 import { allRecords, isStickerRec, onSheet, plain, duplicateRecord, loadImageMap, releaseMap, getFolders, setFolders } from '../records.js';
 import { designFiles, shareOrDownload } from '../export.js';
 import { openModal } from '../modal.js';
+import { openShareToGroup } from '../share.js';
+import { cloudEnabled as groupsEnabled } from '../group.js';
 
 export const title = 'Meu fichário';
 
@@ -148,6 +150,7 @@ export async function mount(root) {
             <a class="btn btn--primary" href="#/photo-cards?edit=${encodeURIComponent(c.id)}">${icon('edit', { size: 22 })}Abrir e editar</a>
             <button type="button" class="btn btn--soft" data-do="sheet">${icon(onSheet(c) ? 'trash' : 'printer', { size: 20 })}${onSheet(c) ? 'Tirar da folha' : 'Pôr na folha'}</button>
             <button type="button" class="btn btn--soft" data-do="image">${icon('download', { size: 20 })}${back ? 'Salvar imagens' : 'Salvar imagem'}</button>
+            ${groupsEnabled ? `<button type="button" class="btn btn--soft" data-do="group">${icon('users', { size: 20 })}Mostrar pra turma</button>` : ''}
             <button type="button" class="btn btn--soft" data-do="dup">${icon('copy', { size: 20 })}Duplicar</button>
             <label class="field">
               <span class="field__label">${icon('folder', { size: 18 })} Pasta</span>
@@ -181,6 +184,12 @@ export async function mount(root) {
             close();
             await load();
             toast('Cópia feita e colocada na folha!');
+          } else if (what === 'group') {
+            b.disabled = true;
+            b.classList.add('is-busy');
+            const m = await loadImageMap(c.images);
+            close();
+            await openShareToGroup({ design: c.design, getImg: (k) => m.get(k) || null, cardId: c.id, onDone: () => releaseMap(m) });
           } else if (what === 'image') {
             b.disabled = true;
             b.classList.add('is-busy');
