@@ -3,6 +3,7 @@
 
 import { db } from '../db.js';
 import { icon } from '../icons.js';
+import { cloudEnabled, newPostsCount, cachedGroups } from '../group.js';
 
 export const title = '';
 
@@ -33,6 +34,14 @@ const TOOLS = [
     art: 'binder',
     meta: 'binder',
   },
+  {
+    route: 'turma',
+    name: 'Minha turma',
+    text: 'Mostre seus cards para as amigas e a família, ganhe coraçõezinhos e combine trocas.',
+    art: 'group',
+    meta: 'group',
+    cloud: true,
+  },
 ];
 
 function greeting() {
@@ -57,6 +66,15 @@ function art(kind) {
       <span class="art-poster"><b></b><i></i><i></i><i></i><i></i><i></i><i></i></span>
     </div>`;
   }
+  if (kind === 'group') {
+    return `
+    <div class="small-art small-art--group" aria-hidden="true">
+      <span class="art-face art-face--a">🐱</span>
+      <span class="art-face art-face--b">🦄</span>
+      <span class="art-face art-face--c">🐰</span>
+      <span class="art-heart">${icon('heart', { size: 22, fill: true })}</span>
+    </div>`;
+  }
   if (kind === 'stickers') {
     return `
     <div class="small-art small-art--stickers" aria-hidden="true">
@@ -74,7 +92,7 @@ function art(kind) {
 const go = (label) => `<span class="tool-tile__go">${label} ${icon('arrowLeft', { size: 20 }).replace('class="ic"', 'class="ic ic--flip"')}</span>`;
 
 export async function mount(el) {
-  const [main, ...more] = TOOLS;
+  const [main, ...more] = TOOLS.filter((t) => !t.cloud || cloudEnabled);
   el.innerHTML = `
     <section class="home">
       <div class="home__hello">
@@ -122,4 +140,14 @@ export async function mount(el) {
     const sm = el.querySelector('[data-meta="stickers"]');
     if (sm && st) sm.textContent = st === 1 ? '1 adesivo' : `${st} adesivos`;
   } catch (_) {}
+
+  // Posts novos na turma (só se este aparelho já está numa turma).
+  const gm = el.querySelector('[data-meta="group"]');
+  if (gm && (await cachedGroups()).length) {
+    newPostsCount()
+      .then((n) => {
+        if (n && gm.isConnected) gm.textContent = n === 1 ? '1 post novo' : `${n >= 99 ? '99+' : n} posts novos`;
+      })
+      .catch(() => {});
+  }
 }

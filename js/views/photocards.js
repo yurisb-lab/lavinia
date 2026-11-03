@@ -39,6 +39,8 @@ import { saveSticker, listStickers, onStickersChange, stickerUrls, revokeUrls, t
 import { designFiles, shareOrDownload } from '../export.js';
 import { onSheet, duplicateRecord, plain, putRecord, thumbBlobFor } from '../records.js';
 import { openModal } from '../modal.js';
+import { openShareToGroup } from '../share.js';
+import { cloudEnabled as groupsEnabled } from '../group.js';
 
 export const title = 'Photo cards';
 
@@ -135,6 +137,7 @@ function template() {
       <div class="actions actions--more">
         <button type="button" class="btn btn--soft btn--sm" data-act="save-image">${icon('download', { size: 20 })}<span data-save-image-label>Salvar imagem</span></button>
         <button type="button" class="btn btn--soft btn--sm" data-act="series">${icon('stack', { size: 20 })}Fazer série</button>
+        ${groupsEnabled ? `<button type="button" class="btn btn--soft btn--sm" data-act="share-group">${icon('users', { size: 20 })}<span>Mostrar pra turma</span></button>` : ''}
         <a class="btn btn--soft btn--sm" href="#/fichario">${icon('book', { size: 20 })}Meu fichário</a>
       </div>
     </div>
@@ -292,6 +295,7 @@ export async function mount(root) {
     $('[data-act="new"]').disabled = lock;
     $('[data-act="save-image"]').disabled = lock || isEmpty(d);
     $('[data-act="series"]').disabled = lock;
+    if ($('[data-act="share-group"]')) $('[data-act="share-group"]').disabled = lock || isEmpty(d);
     $('[data-empty]').hidden = lock || draw.active || sideName !== 'front' || s.layers.length > 0 || !editor.cells().length;
     $('[data-bg-badge]').hidden = lock || !isBgPhoto(L);
     $$('[data-tab]').forEach((b) => {
@@ -715,6 +719,22 @@ export async function mount(root) {
     } finally {
       btn.classList.remove('is-busy');
       label.textContent = 'Salvar imagem';
+      syncChrome();
+    }
+  }
+
+  // Mostrar pra turma: o card como está agora no editor.
+  async function shareToGroup() {
+    if (draw.active) finishDraw();
+    if (bg.active) await finishBg();
+    if (isEmpty(editor.design)) return;
+    const btn = $('[data-act="share-group"]');
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    try {
+      await openShareToGroup({ design: clone(editor.design), getImg, cardId: editingId });
+    } finally {
+      btn.classList.remove('is-busy');
       syncChrome();
     }
   }
@@ -1894,6 +1914,8 @@ export async function mount(root) {
           return saveImage();
         case 'series':
           return openSeries();
+        case 'share-group':
+          return shareToGroup();
         case 'pick':
           if (isBgPhoto(L)) return pickPhoto(null, true);
           return pickPhoto(L && L.type === 'photo' ? L.cell : null);
@@ -2121,7 +2143,34 @@ export async function mount(root) {
   if ([...params.keys()].length) window.history.replaceState(null, '', '#/photo-cards');
   const wantEdit = params.get('edit');
   const wantFormat = params.get('f');
-  if (wantEdit) await editCard(wantEdit);
+  const wantModel = params.get('model');
+  if (wantModel) {
+    // "Quero um igual" da turma: abre o modelo da amiga, sem fotos, para pôr as suas.
+    const model = await db.getMeta('pendingModel').catch(() => null);
+    db.deleteMeta('pendingModel').catch(() => {});
+    if (model) {
+      if (hasUnsaved()) {
+        try {
+          await storeCurrent();
+          toast('O que você estava fazendo foi para a folha.');
+        } catch (_) {}
+      }
+      resetEditor(model.format);
+      try {
+        editor.load(model);
+        history.reset(editor.snapshot());
+        syncChrome();
+        renderPanel(true);
+        renderSheet();
+        saveDraftSoon();
+        toast('Modelo da amiga aberto! Toque nos espaços para pôr as suas fotos.', { duration: 6000 });
+      } catch (err) {
+        console.error(err);
+        resetEditor();
+        toast('Não consegui abrir esse modelo.', { kind: 'error' });
+      }
+    }
+  } else if (wantEdit) await editCard(wantEdit);
   else if (wantFormat && formatInfo(wantFormat).id === wantFormat && wantFormat !== editor.design.format) {
     if (hasUnsaved()) {
       try {

@@ -1,6 +1,6 @@
 # Aplicativo da Lavínia
 
-Um app fofo para a Lavínia criar coisas no PC ou no tablet: **photo cards** (e mini polaroids, marcadores de página, cartões dobráveis e **pôsteres A4**), **adesivos** feitos das próprias fotos e um **fichário** com tudo o que ela já fez.
+Um app fofo para a Lavínia criar coisas no PC ou no tablet: **photo cards** (e mini polaroids, marcadores de página, cartões dobráveis e **pôsteres A4**), **adesivos** feitos das próprias fotos e um **fichário** com tudo o que ela já fez e a **Minha turma**, um mural fechado para mostrar os cards para as amigas.
 
 ## Formatos
 
@@ -75,6 +75,21 @@ Os adesivos aparecem em **Adesivos › Meus** em qualquer card e podem ir para a
 
 Tudo o que já foi para a folha fica guardado no fichário (páginas com bolsinhos, como um fichário de photo cards). Dá para marcar **favoritos**, criar **pastas**, pôr ou tirar da folha, salvar a imagem, duplicar, abrir para editar e apagar de vez.
 
+## Minha turma
+
+Um mural fechado para mostrar os cards para as amigas e a família (no início, **Minha turma**).
+
+- **Só entra quem tem o convite.** Quem cria a turma cuida dela: manda o link (**Chamar amigas**), **aceita ou recusa** cada pedido para entrar e pode apagar qualquer post. O ideal é um adulto criar a turma no próprio celular.
+- **Sem login complicado e sem telefone:** cada pessoa escolhe um nome (só o primeiro nome ou apelido), um bichinho e uma **senha de figurinhas** (3 figurinhas em sequência, escolhidas duas vezes para não esquecer).
+- **Outro aparelho:** abra o convite, toque em **Já sou da turma**, escolha o seu nome e toque a senha. Aparece tudo o que você já postou (**Meus posts**). Depois de 5 erros seguidos a senha trava por 15 minutos (e vai dobrando); quem cuida da turma pode dar uma **senha nova**.
+- **Mostrar pra turma** fica embaixo do editor e no fichário. Vai só a imagem pronta do card (frente e verso), nunca as fotos originais. Os posts aparecem na hora e **somem em 30 dias**.
+- No feed: reações com figurinhas (❤️ 😍 ⭐ 🔥), sem comentários escritos; filtro por pessoa, **Pra trocar** e **Meus posts**; virar o card para ver o verso.
+- **Quero um igual:** se a autora deixar, abre o mesmo modelo no editor (fundo, moldura, textos, adesivos e desenhos) sem nenhuma foto dela, para pôr as suas.
+- **Tenho pra trocar:** marca o card para combinar trocas dos impressos.
+- Na janela **Turma**: link do convite (e **Fazer link novo**, que desliga o antigo), pessoas da turma, **Nova senha**, **Cuidar da turma** (mais alguém pode aprovar e apagar) e **Tirar**. Cada um pode **Trocar minha senha**, entrar em outra turma ou **Sair da turma neste aparelho**.
+- Na nuvem: tabelas `groups`, `group_members`, `member_secrets` (senhas embaralhadas com bcrypt, que ninguém lê pela API), `group_devices`, `group_posts` e `post_reactions`, e a pasta privada `groups`. As regras do banco só deixam quem foi aceito na turma ver os posts e as imagens. SQL em `supabase/migrations/20261103120000_minha_turma.sql`.
+- A limpeza diária (`limpar-cards`) também apaga os posts com mais de 30 dias, os envios que não terminaram e os pedidos para entrar esquecidos há 30 dias.
+
 ## Nuvem (30 dias)
 
 Cada card colocado na folha (ou salvo) também ganha uma cópia na nuvem, no **Supabase** (projeto `lavinia`).
@@ -117,6 +132,9 @@ js/records.js         ajudantes para os cards guardados (duplicar, pastas…)
 js/export.js          salvar imagens (Compartilhar no tablet, baixar no computador)
 js/modal.js           janelinha por cima da tela
 js/cloud.js           cópia dos cards na nuvem (Supabase), por 30 dias
+js/group.js           minha turma: convites, senha de figurinhas, posts e reações
+js/share.js           janelinha "Mostrar pra turma" (editor e fichário)
+js/views/group.js     tela Minha turma (entrar, criar, feed e cuidar da turma)
 js/views/pc-panels.js   abas de ferramentas (HTML de cada painel)
 js/editor.js          editor com seleção e gestos (arrastar, pinça, rodinha, bolinha de girar)
 js/card.js            formatos e medidas, molduras, colagens e formato dos dados
