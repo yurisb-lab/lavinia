@@ -67,7 +67,8 @@ async function rest(path, opts = {}) {
 // Código do erro que o banco mandou (ex.: 'name_taken'), ou null.
 export function errorCode(err) {
   try {
-    return JSON.parse(err.body).message || null;
+    const b = JSON.parse(err.body);
+    return b.error_code || b.message || null;
   } catch (_) {
     return null;
   }
@@ -87,6 +88,7 @@ export function errorText(err) {
     is_me: 'Isso não dá para fazer com você mesma.',
     missing_name: 'Faltou escrever o nome.',
     bad_secret: 'Escolha as 3 figurinhas da senha.',
+    anonymous_provider_disabled: 'A entrada na nuvem está desligada. Peça para um adulto ligar "Allow anonymous sign-ins" no Supabase (Authentication).',
   };
   if (T[code]) return T[code];
   if (!err.status) return 'Sem internet agora. Confira a conexão e tente de novo.';
