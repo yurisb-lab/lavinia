@@ -6,12 +6,14 @@ import * as home from './views/home.js';
 import * as photocards from './views/photocards.js';
 import * as stickers from './views/stickers.js';
 import * as binder from './views/binder.js';
+import * as group from './views/group.js';
 
 const ROUTES = {
   '': home,
   'photo-cards': photocards,
   adesivos: stickers,
   fichario: binder,
+  turma: group,
 };
 
 const viewEl = document.getElementById('view');
