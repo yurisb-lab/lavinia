@@ -1,5 +1,7 @@
 # Aplicativo da Lavínia
 
+> Neste repositório também mora a **Central de Criação Elane** (pasta [`elane/`](elane/README.md)): bottons, marcadores, capas e cadernos A5, temas e kits e corte na Silhouette.
+
 Um app fofo para a Lavínia criar coisas no PC ou no tablet: **photo cards** (e mini polaroids, marcadores de página, cartões dobráveis e **pôsteres A4**), **adesivos** feitos das próprias fotos e um **fichário** com tudo o que ela já fez e a **Minha turma**, um mural fechado para mostrar os cards para as amigas.
 
 ## Formatos
