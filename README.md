@@ -102,6 +102,7 @@ Na seção **Guardados na nuvem**, embaixo da lista de cards, toque num card par
 - Para cada card vão `front.png` e `back.png` (o card pronto), `project.json` e as fotos usadas, para dar para editar de novo.
 - Os arquivos ficam numa pasta privada (`cards`) e as regras do banco não deixam um aparelho ver os cards de outro.
 - Uma função (`limpar-cards`) roda todo dia às 3h17 (Brasília) e apaga o que passou dos 30 dias.
+- A **Central de Criação Elane** (repositório `papelarialane`) usa este mesmo banco. As peças dela ficam com `app = 'elane'` em `saved_cards` e **não vencem**: só saem quando ela apaga no app. Os cards da Lavínia (`app = 'lavinia'`, o padrão) continuam com 30 dias.
 - Endereço e chave pública ficam em `js/cloud-config.js`. Deixe `url` vazio para desligar a nuvem.
 - No painel do Supabase, **Authentication → Sign In / Providers → Allow anonymous sign-ins** precisa estar ligado.
 
