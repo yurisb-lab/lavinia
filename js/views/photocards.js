@@ -132,6 +132,7 @@ function template() {
 
       <div class="actions">
         <button type="button" class="btn btn--primary" data-act="save">${icon('sparkle', { size: 22, fill: true })}<span data-save-label>Colocar na folha</span></button>
+        <button type="button" class="btn btn--soft" data-act="save-only" hidden>${icon('book', { size: 20 })}Só salvar no fichário</button>
         <button type="button" class="btn btn--soft" data-act="new"><span data-new-label>Começar outro card</span></button>
       </div>
       <div class="actions actions--more">
@@ -289,7 +290,11 @@ export async function mount(root) {
     $('[data-size]').textContent = sizeText(d);
     $('[data-busy]').hidden = !bg.running;
     $('[data-editing]').hidden = !editingId;
-    $('[data-save-label]').textContent = editingId ? 'Salvar' : 'Colocar na folha';
+    // Card do fichário que não está na folha: o botão principal salva e põe na folha.
+    const offSheet = editingOffSheet();
+    $('[data-save-label]').textContent = editingId && !offSheet ? 'Salvar' : 'Colocar na folha';
+    $('[data-act="save-only"]').hidden = !offSheet;
+    $('[data-act="save-only"]').disabled = isEmpty(d);
     $('[data-new-label]').textContent = editingId ? 'Cancelar edição' : f.id === 'card' ? 'Começar outro card' : 'Começar de novo';
     $('[data-act="save"]').disabled = isEmpty(d);
     $('[data-act="new"]').disabled = lock;
@@ -1382,8 +1387,15 @@ export async function mount(root) {
     if (cloudList) renderCloud();
   }
 
+  // O card aberto está guardado só no fichário (fora da folha)?
+  function editingOffSheet() {
+    const old = editingId && cards.find((c) => c.id === editingId);
+    return !!old && !onSheet(old);
+  }
+
   // Grava o card do editor: novo (vai para a folha), ou por cima do card que está sendo editado.
-  async function storeCurrent() {
+  // toSheet: põe na folha também um card que estava só no fichário.
+  async function storeCurrent({ toSheet = false } = {}) {
     if (bg.active) await finishBg();
     if (draw.active) finishDraw();
     const design = clone(editor.design);
@@ -1396,7 +1408,7 @@ export async function mount(root) {
       id: old ? old.id : newId(),
       createdAt: old ? old.createdAt : Date.now(),
       copies: old ? old.copies : 1,
-      inSheet: old ? onSheet(old) : true,
+      inSheet: old ? toSheet || onSheet(old) : true,
       design,
       images: blobsFor(design),
       thumbBlob,
@@ -1407,19 +1419,20 @@ export async function mount(root) {
     return record;
   }
 
-  async function saveCard() {
+  async function saveCard({ toSheet = true } = {}) {
     if (isEmpty(editor.design) || busy) return;
-    const btn = $('[data-act="save"]');
+    const btn = $(toSheet ? '[data-act="save"]' : '[data-act="save-only"]');
     btn.disabled = true;
     busy = true;
     try {
       const fromRect = editor.cardScreenRect();
       const wasEditing = editingId;
-      const record = await storeCurrent();
+      const wentToSheet = toSheet && editingOffSheet();
+      const record = await storeCurrent({ toSheet });
       resetEditor();
       renderSheet();
       flyToSheet(record.id, fromRect);
-      toast(wasEditing ? 'Salvo!' : 'Colocado na folha!', {
+      toast(!wasEditing || wentToSheet ? 'Colocado na folha!' : onSheet(record) ? 'Salvo!' : 'Salvo no fichário!', {
         action: window.innerWidth < 1000 && onSheet(record) ? 'Ver folha' : undefined,
         onAction: () => $('[data-sheet]').scrollIntoView({ behavior: 'smooth', block: 'start' }),
       });
@@ -1985,6 +1998,8 @@ export async function mount(root) {
           return L && deleteLayer(L.id);
         case 'save':
           return saveCard();
+        case 'save-only':
+          return saveCard({ toSheet: false });
         case 'new':
           return startNew();
         case 'print':
