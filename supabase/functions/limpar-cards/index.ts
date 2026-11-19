@@ -1,4 +1,5 @@
 // Apaga da nuvem os cards que não foram salvos de novo nos últimos 30 dias
+// (menos os da Central de Criação Elane, app = 'elane', que só saem quando ela apaga)
 // e os posts da "Minha turma" com mais de 30 dias.
 // Roda uma vez por dia (pg_cron). Só apaga o que já venceu, então chamar a mais não faz mal.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
@@ -30,7 +31,9 @@ Deno.serve(async () => {
   try {
     const files = await removeFiles(supabase, 'expired_card_files', 'cards');
     const cutoff = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString();
-    const { count, error } = await supabase.from('saved_cards').delete({ count: 'exact' }).lt('updated_at', cutoff);
+    const { count, error } = await supabase.from('saved_cards').delete({ count: 'exact' })
+      .lt('updated_at', cutoff)
+      .neq('app', 'elane');
     if (error) throw error;
 
     // Minha turma: primeiro os registros vencidos, depois os arquivos que ficaram sem post.
