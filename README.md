@@ -106,6 +106,19 @@ Na seção **Guardados na nuvem**, embaixo da lista de cards, toque num card par
 - Endereço e chave pública ficam em `js/cloud-config.js`. Deixe `url` vazio para desligar a nuvem.
 - No painel do Supabase, **Authentication → Sign In / Providers → Allow anonymous sign-ins** precisa estar ligado.
 
+## Ferramentas novas do editor
+
+- **Letras:** 45 fontes guardadas no app (funcionam sem internet), separadas em **Caligrafia**, **Pincel e caneta**, **Serifa chique**, **Moderna** e **Fofa**.
+  - Cada letra aparece escrita com o próprio texto do card.
+  - A estrela guarda a letra nas **Favoritas**. As **Últimas** usadas também ficam à mão.
+  - **Pares prontos:** o texto escolhido fica com a letra do título e os outros textos do lado ficam com a segunda letra.
+- **Texto:** espaço entre letras, espaço entre linhas, **Tudo em maiúsculas** e **Curva** (arco para cima ou sorriso).
+- **Tirar fundo** tem 4 ferramentas (no editor e em Meus adesivos): **Tocar na cor** (como antes), **Cor na foto toda** (a cor some da foto inteira, até nos buracos), **Borracha** (apaga onde o dedo passa) e **Restaurar** (a foto volta onde o dedo passa).
+- **Conta-gotas:** o botão com o conta-gotas, em qualquer fileira de cores do editor, pega uma cor do card.
+- **Ajustes** (na barra da peça escolhida, ou na aba Camadas): **Transparência**, **Mistura** (Multiplicar, Clarear, Sobrepor, Luz suave, Colorir), **Alinhar no card** e **Prender no lugar**.
+- **Escolher várias** (aba Camadas): **agrupar** (as peças andam, giram e crescem juntas), **alinhar entre si**, **distribuir** com espaço igual, prender ou soltar.
+- **QR code** (Adesivos › QR code): link, Instagram ou WhatsApp. Feito no aparelho, sem internet.
+
 ## Como usar
 
 É um site estático: não precisa instalar nada nem compilar. Para publicar:
