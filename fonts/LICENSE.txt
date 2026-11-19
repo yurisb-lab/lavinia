@@ -3,6 +3,18 @@ Fontes usadas no Aplicativo da Lavínia (só o conjunto "latin", baixado do Goog
 Fredoka, Nunito, Pacifico, Caveat, Lobster, Permanent Marker, Rubik Bubbles,
 Dancing Script e Bungee.
 
-Todas são distribuídas sob a SIL Open Font License, versão 1.1
+Fontes com cara de premium (conjunto "latin", do Fontsource, um peso cada):
+Great Vibes, Pinyon Script, Allura, Parisienne, Alex Brush, Italianno,
+Monsieur La Doulaise, Mrs Saint Delafield, Corinthia, Birthstone, Sacramento,
+Kaushan Script, Damion, Playball, Cormorant Garamond, Playfair Display,
+Bodoni Moda, Cinzel, Cinzel Decorative, Italiana, Gilda Display,
+DM Serif Display, Yeseva One, Abril Fatface, Montserrat, Josefin Sans, Raleway,
+Jost, Tenor Sans, Baloo 2, Titan One, Bagel Fat One e Grandstander.
+
+Satisfy, Yellowtail e Chewy são distribuídas sob a Apache License, versão 2.0
+(https://www.apache.org/licenses/LICENSE-2.0), que também permite usar, guardar
+e distribuir as fontes junto com outros programas.
+
+Todas as outras são distribuídas sob a SIL Open Font License, versão 1.1
 (https://openfontlicense.org), que permite usar, guardar e distribuir as fontes
 junto com outros programas. Os direitos de cada fonte são dos seus autores.
