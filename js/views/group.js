@@ -19,6 +19,7 @@ import {
   inviteUrl,
   parseInvite,
   errorText,
+  errorCode,
   myGroups,
   groupByInvite,
   createGroup,
@@ -241,7 +242,8 @@ export async function mount(root) {
       groups = await myGroups();
     } catch (err) {
       console.error(err);
-      return message('Sem conexão', 'Não consegui falar com a nuvem. Confira a internet e tente de novo.', { retry: start });
+      const text = errorCode(err) ? errorText(err) : 'Não consegui falar com a nuvem. Confira a internet e tente de novo.';
+      return message('Sem conexão', esc(text), { retry: start });
     }
     if (!alive) return;
     if (wantInvite) return openInvite(wantInvite);
